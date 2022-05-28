@@ -1,0 +1,11 @@
+{
+    "Token":"RO2o0WhgBhIvnXN1YMWYAw",
+    "business_flag": "pay_financial_data_mining_gpu",
+    "start_cmd": "sh my.sh mr",
+    "model_local_file_path": "/apdcephfs/private_shaotiancai/code/DART_copy/",
+    "host_num": 1,
+    "host_gpu_num": 1,
+    "GPUName": "V100",
+    "image_full_name": "mirrors.tencent.com/deep_learning/prompt",
+    "is_elasticity": false
+}

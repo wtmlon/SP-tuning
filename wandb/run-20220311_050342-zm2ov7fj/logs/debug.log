@@ -1,0 +1,68 @@
+2022-03-11 05:03:42,056 INFO    Thread-2  :47510 [wandb_setup.py:_flush():69] setting env: {'project': 'L-tune', 'entity': 'wtmlon', 'root_dir': '/lt/DART', 'sweep_id': '36vllwma', 'run_id': 'zm2ov7fj', 'sweep_param_path': '/lt/DART/wandb/sweep-36vllwma/config-zm2ov7fj.yaml'}
+2022-03-11 05:03:42,056 INFO    Thread-2  :47510 [wandb_setup.py:_flush():69] setting login settings: {}
+2022-03-11 05:03:42,056 INFO    Thread-2  :47510 [wandb_init.py:_log_setup():336] Logging user logs to /lt/DART/wandb/run-20220311_050342-zm2ov7fj/logs/debug.log
+2022-03-11 05:03:42,056 INFO    Thread-2  :47510 [wandb_init.py:_log_setup():337] Logging internal logs to /lt/DART/wandb/run-20220311_050342-zm2ov7fj/logs/debug-internal.log
+2022-03-11 05:03:42,057 INFO    Thread-2  :47510 [wandb_init.py:init():369] calling init triggers
+2022-03-11 05:03:42,057 INFO    Thread-2  :47510 [wandb_init.py:init():374] wandb.init called with sweep_config: {'batch_size': 4, 'encoder_type': 'mlp', 'learning_rate': 1e-06, 'seed_split': 13, 'task': 'SST-2', 'weight_decay': 0, 'x_input': 'mix'}
+config: {}
+2022-03-11 05:03:42,057 INFO    Thread-2  :47510 [wandb_init.py:init():418] starting backend
+2022-03-11 05:03:42,057 INFO    Thread-2  :47510 [backend.py:_multiprocessing_setup():70] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2022-03-11 05:03:42,072 INFO    Thread-2  :47510 [backend.py:ensure_launched():132] starting backend process...
+2022-03-11 05:03:42,082 INFO    Thread-2  :47510 [backend.py:ensure_launched():136] started backend process with pid: 47647
+2022-03-11 05:03:42,083 INFO    Thread-2  :47510 [wandb_init.py:init():423] backend started and connected
+2022-03-11 05:03:42,084 INFO    Thread-2  :47510 [wandb_run.py:_config_callback():787] config_cb None None {'batch_size': 4, 'encoder_type': 'mlp', 'learning_rate': 1e-06, 'seed_split': 13, 'task': 'SST-2', 'weight_decay': 0, 'x_input': 'mix'}
+2022-03-11 05:03:42,085 INFO    Thread-2  :47510 [wandb_init.py:init():465] updated telemetry
+2022-03-11 05:03:42,085 INFO    Thread-2  :47510 [wandb_init.py:init():484] communicating current version
+2022-03-11 05:03:47,086 INFO    Thread-2  :47510 [wandb_init.py:init():497] communicating run to backend with 30 second timeout
+2022-03-11 05:03:59,499 INFO    Thread-2  :47510 [wandb_init.py:init():522] starting run threads in backend
+2022-03-11 05:04:04,509 INFO    Thread-2  :47510 [wandb_run.py:_console_start():1565] atexit reg
+2022-03-11 05:04:04,509 INFO    Thread-2  :47510 [wandb_run.py:_redirect():1412] redirect: SettingsConsole.REDIRECT
+2022-03-11 05:04:04,510 INFO    Thread-2  :47510 [wandb_run.py:_redirect():1417] Redirecting console.
+2022-03-11 05:04:04,512 ERROR   Thread-2  :47510 [wandb_run.py:_redirect():1482] Failed to redirect.
+Traceback (most recent call last):
+  File "/root/anaconda3/lib/python3.8/site-packages/wandb/sdk/wandb_run.py", line 1475, in _redirect
+    out_redir.install()
+  File "/root/anaconda3/lib/python3.8/site-packages/wandb/sdk/lib/redirect.py", line 605, in install
+    _WSCH.add_fd(self._pipe_read_fd)
+  File "/root/anaconda3/lib/python3.8/site-packages/wandb/sdk/lib/redirect.py", line 555, in add_fd
+    self._register()
+  File "/root/anaconda3/lib/python3.8/site-packages/wandb/sdk/lib/redirect.py", line 540, in _register
+    old_handler = signal.signal(signal.SIGWINCH, lambda *_: None)
+  File "/root/anaconda3/lib/python3.8/signal.py", line 47, in signal
+    handler = _signal.signal(_enum_to_int(signalnum), _enum_to_int(handler))
+ValueError: signal only works in main thread
+2022-03-11 05:04:04,518 INFO    Thread-2  :47510 [wandb_init.py:init():546] run started, returning control to user process
+2022-03-11 05:04:05,806 INFO    Thread-7  :47510 [wandb_setup.py:_flush():69] setting env: {'project': 'L-tune', 'entity': 'wtmlon', 'root_dir': '/lt/DART', 'run_id': '1bkn0q76', 'sweep_param_path': '/lt/DART/wandb/sweep-36vllwma/config-1bkn0q76.yaml', 'sweep_id': '36vllwma'}
+2022-03-11 05:04:05,806 INFO    Thread-7  :47510 [wandb_init.py:_log_setup():336] Logging user logs to /lt/DART/wandb/run-20220311_050405-1bkn0q76/logs/debug.log
+2022-03-11 05:04:05,806 INFO    Thread-7  :47510 [wandb_init.py:_log_setup():337] Logging internal logs to /lt/DART/wandb/run-20220311_050405-1bkn0q76/logs/debug-internal.log
+2022-03-11 05:04:05,807 INFO    Thread-7  :47510 [wandb_init.py:init():369] calling init triggers
+2022-03-11 05:04:05,807 INFO    Thread-7  :47510 [wandb_init.py:init():374] wandb.init called with sweep_config: {'batch_size': 4, 'encoder_type': 'mlp', 'learning_rate': 1e-06, 'seed_split': 13, 'task': 'SST-2', 'weight_decay': 0.01, 'x_input': 'mix'}
+config: {}
+2022-03-11 05:04:05,807 INFO    Thread-7  :47510 [wandb_init.py:init():418] starting backend
+2022-03-11 05:04:05,807 INFO    Thread-7  :47510 [backend.py:_multiprocessing_setup():70] multiprocessing start_methods=fork,spawn,forkserver, using: spawn
+2022-03-11 05:04:05,813 INFO    Thread-7  :47510 [backend.py:ensure_launched():132] starting backend process...
+2022-03-11 05:04:05,823 INFO    Thread-7  :47510 [backend.py:ensure_launched():136] started backend process with pid: 47736
+2022-03-11 05:04:05,824 INFO    Thread-7  :47510 [wandb_init.py:init():423] backend started and connected
+2022-03-11 05:04:05,825 INFO    Thread-7  :47510 [wandb_run.py:_config_callback():787] config_cb None None {'batch_size': 4, 'encoder_type': 'mlp', 'learning_rate': 1e-06, 'seed_split': 13, 'task': 'SST-2', 'weight_decay': 0.01, 'x_input': 'mix'}
+2022-03-11 05:04:05,826 INFO    Thread-7  :47510 [wandb_init.py:init():465] updated telemetry
+2022-03-11 05:04:05,826 INFO    Thread-7  :47510 [wandb_init.py:init():484] communicating current version
+2022-03-11 05:04:09,651 INFO    MainThread:47510 [wandb_run.py:_atexit_cleanup():1535] got exitcode: 2
+2022-03-11 05:04:09,652 INFO    MainThread:47510 [wandb_run.py:_restore():1507] restore
+2022-03-11 05:04:09,652 INFO    MainThread:47510 [wandb_run.py:_restore():1507] restore
+2022-03-11 05:04:10,843 ERROR   Thread-7  :47510 [wandb_init.py:init():770] error
+Traceback (most recent call last):
+  File "/root/anaconda3/lib/python3.8/site-packages/wandb/sdk/wandb_init.py", line 744, in init
+    run = wi.init()
+  File "/root/anaconda3/lib/python3.8/site-packages/wandb/sdk/wandb_init.py", line 485, in init
+    ret = backend.interface.communicate_check_version(
+  File "/root/anaconda3/lib/python3.8/site-packages/wandb/sdk/interface/interface.py", line 789, in communicate_check_version
+    result = self._communicate(rec)
+  File "/root/anaconda3/lib/python3.8/site-packages/wandb/sdk/interface/interface.py", line 537, in _communicate
+    return self._communicate_async(rec, local=local).get(timeout=timeout)
+  File "/root/anaconda3/lib/python3.8/site-packages/wandb/sdk/interface/interface.py", line 82, in get
+    is_set = self._object_ready.wait(timeout)
+  File "/root/anaconda3/lib/python3.8/threading.py", line 558, in wait
+    signaled = self._cond.wait(timeout)
+  File "/root/anaconda3/lib/python3.8/threading.py", line 306, in wait
+    gotit = waiter.acquire(True, timeout)
+Exception

@@ -1,0 +1,62 @@
+program: my_sweep.py
+command:
+  - python3
+  - ${program}
+project: replace_subj_es
+entity: szu_csse_bdi
+method: grid
+metric:
+  goal: maximize
+  name: eval-acc
+parameters:
+  aug:
+    value: true
+  batch_size:
+    values:
+    - 4
+    - 8
+    - 16
+    - 24
+    - 32
+  encoder:
+    value: lstm
+  extra_mask_rate:
+    value: 0.1
+  learning_rate:
+    values:
+    - 1.0e-06
+    - 1.0e-05
+    - 5.0e-05
+    - 0.0001
+    - 0.0002
+  load_manual:
+    value: false
+  num_splits:
+    value: -1
+  output_dir_suffix:
+    value: ''
+  repeat:
+    value: 1
+  seed_split:
+    values:
+    - 13
+    - 21
+    - 42
+    - 87
+    - 100
+  soft_label:
+    value: false
+  task:
+    value: subj
+  warmup:
+    value: true
+  warmup_lr:
+    value: 0.0001
+  weight_decay:
+    values:
+    - 0.0
+    - 0.01
+    - 0.05
+    - 0.1
+  x_input:
+    value: replace

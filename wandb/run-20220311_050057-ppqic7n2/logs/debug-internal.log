@@ -1,0 +1,19 @@
+2022-03-11 05:00:58,558 INFO    MainThread:47129 [internal.py:wandb_internal():88] W&B internal server running at pid: 47129, started at: 2022-03-11 05:00:58.557971
+2022-03-11 05:00:58,561 DEBUG   HandlerThread:47129 [handler.py:handle_request():121] handle_request: check_version
+2022-03-11 05:00:58,561 INFO    WriterThread:47129 [datastore.py:open_for_write():77] open: /lt/DART/wandb/run-20220311_050057-ppqic7n2/run-ppqic7n2.wandb
+2022-03-11 05:00:58,564 DEBUG   SenderThread:47129 [sender.py:send():176] send: header
+2022-03-11 05:00:58,565 DEBUG   SenderThread:47129 [sender.py:send_request():186] send_request: check_version
+2022-03-11 05:01:03,568 DEBUG   SenderThread:47129 [sender.py:send():176] send: run
+2022-03-11 05:01:04,040 INFO    SenderThread:47129 [dir_watcher.py:__init__():168] watching files in: /lt/DART/wandb/run-20220311_050057-ppqic7n2/files
+2022-03-11 05:01:04,041 INFO    SenderThread:47129 [sender.py:_start_run_threads():696] run started: ppqic7n2 with start time 1646974857
+2022-03-11 05:01:04,041 DEBUG   HandlerThread:47129 [handler.py:handle_request():121] handle_request: run_start
+2022-03-11 05:01:04,041 DEBUG   SenderThread:47129 [sender.py:send():176] send: summary
+2022-03-11 05:01:04,042 INFO    SenderThread:47129 [sender.py:_save_file():821] saving file wandb-summary.json with policy end
+2022-03-11 05:01:04,052 DEBUG   HandlerThread:47129 [meta.py:__init__():39] meta init
+2022-03-11 05:01:04,052 DEBUG   HandlerThread:47129 [meta.py:__init__():53] meta init done
+2022-03-11 05:01:04,053 DEBUG   HandlerThread:47129 [meta.py:probe():210] probe
+2022-03-11 05:01:04,068 DEBUG   HandlerThread:47129 [meta.py:_setup_git():200] setup git
+2022-03-11 05:01:04,094 DEBUG   HandlerThread:47129 [meta.py:_setup_git():207] setup git done
+2022-03-11 05:01:04,094 DEBUG   HandlerThread:47129 [meta.py:_save_pip():57] save pip
+2022-03-11 05:01:04,096 DEBUG   HandlerThread:47129 [meta.py:_save_pip():71] save pip done
+2022-03-11 05:01:04,096 DEBUG   HandlerThread:47129 [meta.py:_save_conda():78] save conda

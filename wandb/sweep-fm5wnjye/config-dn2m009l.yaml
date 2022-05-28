@@ -1,0 +1,16 @@
+wandb_version: 1
+
+batch_size:
+  value: 4
+encoder_type:
+  value: mlp
+learning_rate:
+  value: 1.0e-06
+seed_split:
+  value: 13
+task:
+  value: SST-2
+weight_decay:
+  value: 0.1
+x_input:
+  value: mix

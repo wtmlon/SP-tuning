@@ -1,0 +1,12 @@
+2022-03-11 05:04:06,547 INFO    MainThread:47736 [internal.py:wandb_internal():88] W&B internal server running at pid: 47736, started at: 2022-03-11 05:04:06.547505
+2022-03-11 05:04:06,550 DEBUG   HandlerThread:47736 [handler.py:handle_request():121] handle_request: check_version
+2022-03-11 05:04:06,550 INFO    WriterThread:47736 [datastore.py:open_for_write():77] open: /lt/DART/wandb/run-20220311_050405-1bkn0q76/run-1bkn0q76.wandb
+2022-03-11 05:04:06,554 DEBUG   SenderThread:47736 [sender.py:send():176] send: header
+2022-03-11 05:04:06,554 DEBUG   SenderThread:47736 [sender.py:send_request():186] send_request: check_version
+2022-03-11 05:04:06,874 WARNING MainThread:47736 [internal.py:wandb_internal():147] Internal process interrupt: 1
+2022-03-11 05:04:09,649 WARNING MainThread:47736 [internal.py:wandb_internal():147] Internal process interrupt: 2
+2022-03-11 05:04:09,650 ERROR   MainThread:47736 [internal.py:wandb_internal():150] Internal process interrupted.
+2022-03-11 05:04:10,552 INFO    WriterThread:47736 [datastore.py:close():258] close: /lt/DART/wandb/run-20220311_050405-1bkn0q76/run-1bkn0q76.wandb
+2022-03-11 05:04:10,556 INFO    HandlerThread:47736 [handler.py:finish():632] shutting down handler
+2022-03-11 05:04:11,557 INFO    SenderThread:47736 [sender.py:finish():925] shutting down sender
+2022-03-11 05:04:11,558 INFO    MainThread:47736 [internal.py:handle_exit():78] Internal process exited

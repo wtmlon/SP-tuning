@@ -1,0 +1,15 @@
+2022-03-11 05:06:36,840 INFO    MainThread:48131 [internal.py:wandb_internal():88] W&B internal server running at pid: 48131, started at: 2022-03-11 05:06:36.840399
+2022-03-11 05:06:36,843 DEBUG   HandlerThread:48131 [handler.py:handle_request():121] handle_request: check_version
+2022-03-11 05:06:36,844 INFO    WriterThread:48131 [datastore.py:open_for_write():77] open: /lt/DART/wandb/run-20220311_050636-oafyz093/run-oafyz093.wandb
+2022-03-11 05:06:36,847 DEBUG   SenderThread:48131 [sender.py:send():176] send: header
+2022-03-11 05:06:36,847 DEBUG   SenderThread:48131 [sender.py:send_request():186] send_request: check_version
+2022-03-11 05:06:41,850 DEBUG   SenderThread:48131 [sender.py:send():176] send: run
+2022-03-11 05:06:42,297 INFO    SenderThread:48131 [dir_watcher.py:__init__():168] watching files in: /lt/DART/wandb/run-20220311_050636-oafyz093/files
+2022-03-11 05:06:42,297 INFO    SenderThread:48131 [sender.py:_start_run_threads():696] run started: oafyz093 with start time 1646975196
+2022-03-11 05:06:42,297 DEBUG   SenderThread:48131 [sender.py:send():176] send: summary
+2022-03-11 05:06:42,298 INFO    SenderThread:48131 [sender.py:_save_file():821] saving file wandb-summary.json with policy end
+2022-03-11 05:06:42,299 DEBUG   HandlerThread:48131 [handler.py:handle_request():121] handle_request: run_start
+2022-03-11 05:06:42,308 DEBUG   HandlerThread:48131 [meta.py:__init__():39] meta init
+2022-03-11 05:06:42,308 DEBUG   HandlerThread:48131 [meta.py:__init__():53] meta init done
+2022-03-11 05:06:42,308 DEBUG   HandlerThread:48131 [meta.py:probe():210] probe
+2022-03-11 05:06:42,343 DEBUG   HandlerThread:48131 [meta.py:_setup_git():200] setup git
