@@ -22,6 +22,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict, Counter
 from typing import List, Dict, Callable
+import linecache
 
 from utils import InputExample
 
@@ -573,7 +574,7 @@ class Sst2Processor(DataProcessor):
     """Processor for the SST-2 data set (GLUE)."""
 
     def get_train_examples(self, data_dir):
-        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train")
+        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train", True)
 
     def get_dev_examples(self, data_dir):
         return self._create_examples(os.path.join(data_dir, "dev.tsv"), "dev")
@@ -592,7 +593,7 @@ class Sst2Processor(DataProcessor):
     def get_labels(self):
         return ["0", "1"]
 
-    def _create_examples(self, path: str, set_type: str) -> List[InputExample]:
+    def _create_examples(self, path: str, set_type: str, use_trans: bool=False) -> List[InputExample]:
         examples = []
 
         with open(path, encoding='utf8') as f:
@@ -603,8 +604,13 @@ class Sst2Processor(DataProcessor):
                 guid = f"{set_type}-{i}"
                 text_a = line[0]
                 label = line[1]
-                examples.append(InputExample(
-                    guid=guid, text_a=text_a, label=label))
+                if use_trans:
+                    trans = linecache.getline(path + '1', i+1).rstrip('\n')
+                    examples.append(InputExample(
+                        guid=guid, text_a=text_a, label=label, trans=trans))
+                else:
+                    examples.append(InputExample(
+                        guid=guid, text_a=text_a, label=label))
 
         return examples
 

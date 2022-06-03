@@ -31,7 +31,7 @@ logger = logging.getLogger('utils')
 class InputExample(object):
     """A raw input example consisting of one or two segments of text and a label"""
 
-    def __init__(self, guid, text_a, text_b=None, label=None, logits=None, meta: Optional[Dict] = None, idx=-1):
+    def __init__(self, guid, text_a, text_b=None, label=None, logits=None, meta: Optional[Dict] = None, idx=-1, trans=None):
         """
         Create a new InputExample.
         :param guid: a unique textual identifier
@@ -45,6 +45,7 @@ class InputExample(object):
         self.guid = guid
         self.text_a = text_a
         self.text_b = text_b
+        self.trans = trans
         self.label = label
         self.logits = logits
         self.idx = idx

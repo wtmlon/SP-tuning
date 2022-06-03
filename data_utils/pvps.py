@@ -125,8 +125,8 @@ class PVP(ABC):
 
         tokenizer = self.wrapper.tokenizer  # type: PreTrainedTokenizer
 
-        parts_a, parts_b, block_flag_a, block_flag_b, aug_parts_a = self.get_parts(example)
-        input_parts_a = self.get_input_parts(example)
+        parts_a, parts_b, block_flag_a, block_flag_b = self.get_parts(example)
+        input_parts_a, aug_parts_a = self.get_input_parts(example)
 
         kwargs = {'add_prefix_space': True} if isinstance(
             tokenizer, GPT2Tokenizer) else {}
@@ -695,12 +695,14 @@ class Sst2PVP(PVP):
         block_flag_b = []
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
-        return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+        return string_list_a, string_list_b, block_flag_a, block_flag_b
 
     def get_input_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
+        aug_text_a = self.shortenable(example.trans)
         string_list_a = [text_a]
-        return string_list_a
+        aug_string_list_a = [aug_text_a]
+        return string_list_a, aug_string_list_a
 
 
 class ColaPVP(PVP):

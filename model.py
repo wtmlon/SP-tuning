@@ -746,12 +746,15 @@ class TransformerModelWrapper(object):
         features = []
         for example in examples:
             # Preprocessor for models pretrained using a masked language modeling objective (e.g., BERT).
-            input_ids, token_type_ids, block_flag, aug_ids, input_parts_ids = self.pvp.encode(example, aug=aug, seed=self.config.seed)
+            #input_ids, token_type_ids, block_flag, aug_ids, input_parts_ids = self.pvp.encode(example, aug=aug, seed=self.config.seed)
+            input_ids, token_type_ids, block_flag, input_parts_ids, tr_input_parts_ids = self.pvp.encode(example, aug=aug, seed=self.config.seed)
             attention_mask = [1] * len(input_ids)
             padding_length = self.config.max_seq_length - \
                 len(input_ids)
             parts_padding_length = self.config.max_seq_length - \
                 len(input_parts_ids)
+            tr_parts_padding_length = self.config.max_seq_length - \
+                len(tr_input_parts_ids)
 
             if padding_length < 0:
                 raise ValueError(
@@ -761,6 +764,8 @@ class TransformerModelWrapper(object):
                 ([self.tokenizer.pad_token_id] * padding_length)
             input_parts_ids = input_parts_ids + \
                 ([self.tokenizer.pad_token_id] * parts_padding_length)
+            tr_input_parts_ids = tr_input_parts_ids + \
+                ([self.tokenizer.pad_token_id] * tr_parts_padding_length)
 
             if aug_ids:
                 aug_padding_length = self.config.max_seq_length - \
@@ -788,7 +793,8 @@ class TransformerModelWrapper(object):
             else:
                 mlm_labels = [-1] * self.config.max_seq_length
 
-            if aug_ids:
+            #if aug_ids:
+            if tr_input_parts_ids:
                 input_features = InputFeatures(input_ids=input_ids,
                                                attention_mask=attention_mask,
                                                token_type_ids=token_type_ids,
@@ -797,7 +803,8 @@ class TransformerModelWrapper(object):
                                                logits=logits,
                                                idx=example.idx,
                                                block_flag=block_flag,
-                                               aug_ids=aug_ids
+                                               aug_ids=tr_input_parts_ids,
+                                               input_parts_ids = input_parts_ids
                                                )
             else:
                 input_features = InputFeatures(input_ids=input_ids,
