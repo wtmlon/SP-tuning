@@ -734,6 +734,7 @@ class TransformerModelWrapper(object):
                 'logits': torch.tensor([f.logits for f in features], dtype=torch.float),
                 'idx': torch.tensor([f.idx for f in features], dtype=torch.long),
                 'block_flag': torch.tensor([f.block_flag for f in features], dtype=torch.long),
+                'input_parts_ids': torch.tensor([f.input_parts_ids for f in features], dtype=torch.long)
             }
 
         if self.task_helper:
@@ -745,10 +746,12 @@ class TransformerModelWrapper(object):
         features = []
         for example in examples:
             # Preprocessor for models pretrained using a masked language modeling objective (e.g., BERT).
-            input_ids, token_type_ids, block_flag, aug_ids = self.pvp.encode(example, aug=aug, seed=self.config.seed)
+            input_ids, token_type_ids, block_flag, aug_ids, input_parts_ids = self.pvp.encode(example, aug=aug, seed=self.config.seed)
             attention_mask = [1] * len(input_ids)
             padding_length = self.config.max_seq_length - \
                 len(input_ids)
+            parts_padding_length = self.config.max_seq_length - \
+                len(input_parts_ids)
 
             if padding_length < 0:
                 raise ValueError(
@@ -756,6 +759,8 @@ class TransformerModelWrapper(object):
 
             input_ids = input_ids + \
                 ([self.tokenizer.pad_token_id] * padding_length)
+            input_parts_ids = input_parts_ids + \
+                ([self.tokenizer.pad_token_id] * parts_padding_length)
 
             if aug_ids:
                 aug_padding_length = self.config.max_seq_length - \
@@ -802,7 +807,8 @@ class TransformerModelWrapper(object):
                                                mlm_labels=mlm_labels,
                                                logits=logits,
                                                idx=example.idx,
-                                               block_flag=block_flag
+                                               block_flag=block_flag,
+                                               input_parts_ids = input_parts_ids
                                                )
 
             # Add meta input features
@@ -862,6 +868,7 @@ class TransformerModelWrapper(object):
 
     def _generate_default_inputs(self, batch: Dict[str, torch.Tensor], is_train: bool = False) -> Dict[str, torch.Tensor]:
         input_ids = batch['input_ids']
+        input_parts_ids = batch['input_parts_ids']
         bz = batch['input_ids'].shape[0]
         block_flag = batch["block_flag"]
         model = self.model.module if hasattr(
@@ -869,12 +876,14 @@ class TransformerModelWrapper(object):
 
         word_embeddings = model.model.get_input_embeddings()
         raw_embeds = word_embeddings(input_ids)
+        parts_raw_embeds = word_embeddings(input_parts_ids)
         aug_replace_embeds = []
         if self.config.aug and is_train and batch['aug_ids'] != None:
             aug_embeds = word_embeddings(batch['aug_ids'])
             aug_replace_embeds = self.get_replace_embeds(model, bz, aug_embeds)
 
         replace_embeds = self.get_replace_embeds(model, bz, raw_embeds.clone().detach().requires_grad_())
+        #replace_embeds = self.get_replace_embeds(model, bz, parts_raw_embeds)
 
         if replace_embeds is not None:  # For normal cases where prompt encoder is not None
             blocked_indices = (block_flag == 1).nonzero(as_tuple=False).reshape(

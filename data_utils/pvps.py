@@ -79,6 +79,10 @@ class PVP(ABC):
         """Return the underlying LM's mask token"""
         return self.wrapper.tokenizer.mask_token
 
+    def sep(self) -> str:
+        """Return the underlying LM's sep token"""
+        return self.wrapper.tokenizer.sep_token
+
     @property
     def mask_id(self) -> int:
         """Return the underlying LM's mask id"""
@@ -122,6 +126,7 @@ class PVP(ABC):
         tokenizer = self.wrapper.tokenizer  # type: PreTrainedTokenizer
 
         parts_a, parts_b, block_flag_a, block_flag_b, aug_parts_a = self.get_parts(example)
+        input_parts_a = self.get_input_parts(example)
 
         kwargs = {'add_prefix_space': True} if isinstance(
             tokenizer, GPT2Tokenizer) else {}
@@ -129,6 +134,10 @@ class PVP(ABC):
         parts_a = [x if isinstance(x, tuple) else (x, False) for x in parts_a]
         parts_a = [(tokenizer.encode(x, add_special_tokens=False, **kwargs), s)
                    for x, s in parts_a if x]
+
+        input_parts_a = [x if isinstance(x, tuple) else (x, False) for x in input_parts_a]
+        input_parts_a = [(tokenizer.encode(x, add_special_tokens=False, **kwargs), s)
+                   for x, s in input_parts_a if x]
 
         if parts_b:
             parts_b = [x if isinstance(x, tuple) else (x, False)
@@ -142,8 +151,11 @@ class PVP(ABC):
             bool(parts_b))
         self.truncate(
             parts_a, parts_b, max_length=self.wrapper.config.max_seq_length - num_special)
+        self.truncate(
+            input_parts_a, parts_b, max_length=self.wrapper.config.max_seq_length - num_special)
 
         tokens_a = [token_id for part, _ in parts_a for token_id in part]
+        input_tokens_a = [token_id for part, _ in input_parts_a for token_id in part]
         # tokens_b = [token_id for part, _ in parts_b for token_id in part] if parts_b else None
         tokens_b = [token_id for part,
                     _ in parts_b for token_id in part] if parts_b else []
@@ -176,6 +188,8 @@ class PVP(ABC):
             block_flag = tokenizer.build_inputs_with_special_tokens(
                 block_flag_a)
 
+        input_parts_ids = tokenizer.build_inputs_with_special_tokens(input_tokens_a)
+
         block_flag = [item if item in [0, 1] else 0 for item in block_flag]
         assert len(input_ids) == len(block_flag)
 
@@ -192,7 +206,7 @@ class PVP(ABC):
             aug_input_ids = tokenizer.build_inputs_with_special_tokens(tokens_aug)
 
         # return input_ids, token_type_ids
-        return input_ids, token_type_ids, block_flag, aug_input_ids
+        return input_ids, token_type_ids, block_flag, aug_input_ids, input_parts_ids
 
     @staticmethod
     def _seq_length(parts: List[Tuple[str, bool]], only_shortenable: bool = False):
@@ -660,7 +674,8 @@ class Sst2PVP(PVP):
         # '1': ['terrible']
     }
 
-    PATTERN = ['text_a', 'It', 'was', 'self.mask', '.']
+    #PATTERN = ['text_a', 'It', 'was', 'self.mask', '.']
+    PATTERN = ['text_a', 'the', 'the', 'self.mask', 'the']
     BLOCK_FLAG = [0, 1, 1, 0, 1]
 
     # Only mask setting
@@ -671,7 +686,8 @@ class Sst2PVP(PVP):
         text_a = self.shortenable(example.text_a)
 
         # few-shot
-        string_list_a = [text_a, 'It', 'was', self.mask, '.']
+        string_list_a = [text_a, 'the', 'the', self.mask, 'the']
+        #string_list_a = [text_a, 'It', 'was', self.mask, '.']
         aug_string_list_a = [text_a, 'It', 'is', self.mask, '.']
         # string_list_a = [text_a, self.mask]
         string_list_b = []
@@ -680,6 +696,11 @@ class Sst2PVP(PVP):
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+
+    def get_input_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(example.text_a)
+        string_list_a = [text_a]
+        return string_list_a
 
 
 class ColaPVP(PVP):
@@ -705,6 +726,10 @@ class ColaPVP(PVP):
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
 
+    def get_input_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(example.text_a)
+        string_list_a = [text_a]
+        return string_list_a
 
 class Sst5PVP(PVP):
     VERBALIZER = {
@@ -737,6 +762,10 @@ class Sst5PVP(PVP):
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b
 
+    def get_input_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(example.text_a)
+        string_list_a = [text_a]
+        return string_list_a
 
 class SubjPVP(ColaPVP):
     VERBALIZER = {
@@ -772,6 +801,10 @@ class TrecPVP(PVP):
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
 
+    def get_input_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(example.text_a)
+        string_list_a = [text_a]
+        return string_list_a
 
 class MnliPVP(PVP):
     VERBALIZER = {
@@ -804,6 +837,12 @@ class MnliPVP(PVP):
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
 
+    def get_input_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(example.text_a)
+        text_b = self.shortenable(example.text_b)
+        string_list_a = [text_a, self.sep, text_b]
+        return string_list_a
+
 class SnliPVP(PVP):
     VERBALIZER = {
         "contradiction": ["No"],
@@ -832,6 +871,12 @@ class SnliPVP(PVP):
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
 
+    def get_input_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(example.text_a)
+        text_b = self.shortenable(example.text_b)
+        string_list_a = [text_a, self.sep, text_b]
+        return string_list_a
+
 class QnliPVP(PVP):
     VERBALIZER = {
         "not_entailment": ["No"],
@@ -857,6 +902,11 @@ class QnliPVP(PVP):
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
 
+    def get_input_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(example.text_a)
+        text_b = self.shortenable(example.text_b)
+        string_list_a = [text_a, self.sep, text_b]
+        return string_list_a
 
 class MrpcPVP(PVP):
     VERBALIZER = {
@@ -882,6 +932,12 @@ class MrpcPVP(PVP):
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+
+    def get_input_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(example.text_a)
+        text_b = self.shortenable(example.text_b)
+        string_list_a = [text_a, self.sep, text_b]
+        return string_list_a
 
 # class QQPPVP(PVP):
 #     VERBALIZER = {
@@ -932,6 +988,12 @@ class QQPPVP(PVP):
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+
+    def get_input_parts(self, example: InputExample) -> FilledPattern:
+        text_a = self.shortenable(example.text_a)
+        text_b = self.shortenable(example.text_b)
+        string_list_a = [text_a, self.sep, text_b]
+        return string_list_a
 
 class MRPVP(Sst2PVP):
     VERBALIZER = {
