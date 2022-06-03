@@ -882,8 +882,8 @@ class TransformerModelWrapper(object):
             aug_embeds = word_embeddings(batch['aug_ids'])
             aug_replace_embeds = self.get_replace_embeds(model, bz, aug_embeds)
 
-        replace_embeds = self.get_replace_embeds(model, bz, raw_embeds.clone().detach().requires_grad_())
-        #replace_embeds = self.get_replace_embeds(model, bz, parts_raw_embeds)
+        #replace_embeds = self.get_replace_embeds(model, bz, raw_embeds.clone().detach().requires_grad_())
+        replace_embeds = self.get_replace_embeds(model, bz, parts_raw_embeds)
 
         if replace_embeds is not None:  # For normal cases where prompt encoder is not None
             blocked_indices = (block_flag == 1).nonzero(as_tuple=False).reshape(
