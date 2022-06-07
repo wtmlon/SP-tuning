@@ -31,7 +31,7 @@ def train_pet(args):
 
     # Load dataset
     train_data = load_examples(args.task_name, args.data_dir, TRAIN_SET,
-                               num_examples=args.train_examples, split_examples_evenly=args.split_examples_evenly)
+                               num_examples=args.train_examples, split_examples_evenly=args.split_examples_evenly, aug=args.aug)
     eval_data = load_examples(args.task_name, args.data_dir, TEST_SET if args.eval_set == 'test' else DEV_SET,
                               num_examples=args.eval_examples, split_examples_evenly=args.split_examples_evenly)
     dev_data = load_examples(args.task_name, args.data_dir, DEV32_SET,

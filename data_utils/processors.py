@@ -573,8 +573,8 @@ class RecordProcessor(DataProcessor):
 class Sst2Processor(DataProcessor):
     """Processor for the SST-2 data set (GLUE)."""
 
-    def get_train_examples(self, data_dir):
-        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train", True)
+    def get_train_examples(self, data_dir, aug):
+        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train", use_trans=aug)
 
     def get_dev_examples(self, data_dir):
         return self._create_examples(os.path.join(data_dir, "dev.tsv"), "dev")
@@ -605,7 +605,7 @@ class Sst2Processor(DataProcessor):
                 text_a = line[0]
                 label = line[1]
                 if use_trans:
-                    trans = linecache.getline(path + '1', i+1).rstrip('\n')
+                    trans = linecache.getline(path + '1', i).rstrip('\n')
                     examples.append(InputExample(
                         guid=guid, text_a=text_a, label=label, trans=trans))
                 else:
@@ -622,8 +622,8 @@ class MnliProcessor(DataProcessor):
     TEXT_B_INDEX = 9
     LABEL_INDEX = -1
 
-    def get_train_examples(self, data_dir):
-        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train")
+    def get_train_examples(self, data_dir, aug):
+        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train", use_trans=aug)
 
     def get_dev_examples(self, data_dir):
         return self._create_examples(os.path.join(data_dir, "dev_matched.tsv"), "dev")
@@ -643,7 +643,7 @@ class MnliProcessor(DataProcessor):
         return ["contradiction", "entailment", "neutral"]
 
     def _create_examples(self, path: str, set_type: str, hypothesis_name: str = "hypothesis",
-                         premise_name: str = "premise") -> List[InputExample]:
+            premise_name: str = "premise", use_trans: bool=False) -> List[InputExample]:
         examples = []
 
         with open(path, encoding='utf8') as f:
@@ -655,8 +655,14 @@ class MnliProcessor(DataProcessor):
                 text_a = line[self.TEXT_A_INDEX]
                 text_b = line[self.TEXT_B_INDEX]
                 label = line[self.LABEL_INDEX]
-                examples.append(InputExample(
-                    guid=guid, text_a=text_a, text_b=text_b, label=label))
+
+                if use_trans:
+                    trans = linecache.getline(path + '1', i).rstrip('\n').split('\t')
+                    examples.append(InputExample(
+                        guid=guid, text_a=text_a, text_b=text_b, label=label, trans=trans[0], trans_b=trans[1]))
+                else:
+                    examples.append(InputExample(
+                        guid=guid, text_a=text_a, text_b=text_b, label=label))
 
         return examples
 
@@ -702,8 +708,8 @@ class ColaProcessor(DataProcessor):
 class Sst5Processor(DataProcessor):
     """Processor for the SST-5 data set (GLUE)."""
 
-    def get_train_examples(self, data_dir):
-        return self._create_examples(os.path.join(data_dir, "train.csv"), "train")
+    def get_train_examples(self, data_dir, aug):
+        return self._create_examples(os.path.join(data_dir, "train.csv"), "train", use_trans=aug)
 
     def get_dev_examples(self, data_dir):
         return self._create_examples(os.path.join(data_dir, "dev.csv"), "dev")
@@ -722,7 +728,7 @@ class Sst5Processor(DataProcessor):
     def get_labels(self):
         return ["0", "1", "2", "3", "4"]
 
-    def _create_examples(self, path: str, set_type: str) -> List[InputExample]:
+    def _create_examples(self, path: str, set_type: str, use_trans: bool=False) -> List[InputExample]:
         examples = []
 
         with open(path, encoding='utf8') as f:
@@ -732,9 +738,15 @@ class Sst5Processor(DataProcessor):
                 text_a = line[2:]
                 if not text_a.strip():  # Empty sentence
                     continue
+
                 label = line[0]
-                examples.append(InputExample(
-                    guid=guid, text_a=text_a, label=label))
+                if use_trans:
+                    trans = linecache.getline(path + '1', i).rstrip('\n')
+                    examples.append(InputExample(
+                        guid=guid, text_a=text_a, label=label, trans=trans))
+                else:
+                    examples.append(InputExample(
+                        guid=guid, text_a=text_a, label=label))
 
         return examples
 
@@ -850,7 +862,7 @@ DEV32_SET = "dev32"
 
 
 def load_examples(task, data_dir: str, set_type: str, *_, num_examples: int = None,
-                  seed: int = 42, split_examples_evenly: bool = False) -> List[InputExample]:
+        seed: int = 42, split_examples_evenly: bool = False, aug: bool=True) -> List[InputExample]:
     """Load examples for a given task."""
 
     def eq_div(N, i):
@@ -885,7 +897,7 @@ def load_examples(task, data_dir: str, set_type: str, *_, num_examples: int = No
     elif set_type == TEST_SET:
         examples = processor.get_test_examples(data_dir)
     elif set_type == TRAIN_SET:
-        examples = processor.get_train_examples(data_dir)
+        examples = processor.get_train_examples(data_dir, aug=aug)
     elif set_type == UNLABELED_SET:
         examples = processor.get_unlabeled_examples(data_dir)
         for example in examples:

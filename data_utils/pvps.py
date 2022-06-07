@@ -79,6 +79,7 @@ class PVP(ABC):
         """Return the underlying LM's mask token"""
         return self.wrapper.tokenizer.mask_token
 
+    @property
     def sep(self) -> str:
         """Return the underlying LM's sep token"""
         return self.wrapper.tokenizer.sep_token
@@ -206,7 +207,7 @@ class PVP(ABC):
             aug_input_ids = tokenizer.build_inputs_with_special_tokens(tokens_aug)
 
         # return input_ids, token_type_ids
-        return input_ids, token_type_ids, block_flag, aug_input_ids, input_parts_ids
+        return input_ids, token_type_ids, block_flag, input_parts_ids, aug_input_ids
 
     @staticmethod
     def _seq_length(parts: List[Tuple[str, bool]], only_shortenable: bool = False):
@@ -726,12 +727,14 @@ class ColaPVP(PVP):
         block_flag_b = []
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
-        return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+        return string_list_a, string_list_b, block_flag_a, block_flag_b
 
     def get_input_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
+        aug_text_a = self.shortenable(example.trans)
         string_list_a = [text_a]
-        return string_list_a
+        aug_string_list_a = [aug_text_a]
+        return string_list_a, aug_string_list_a
 
 class Sst5PVP(PVP):
     VERBALIZER = {
@@ -801,12 +804,14 @@ class TrecPVP(PVP):
         block_flag_b = []
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
-        return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+        return string_list_a, string_list_b, block_flag_a, block_flag_b
 
     def get_input_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
+        aug_text_a = self.shortenable(example.trans)
         string_list_a = [text_a]
-        return string_list_a
+        aug_string_list_a = [aug_text_a]
+        return string_list_a, aug_string_list_a
 
 class MnliPVP(PVP):
     VERBALIZER = {
@@ -837,13 +842,16 @@ class MnliPVP(PVP):
         block_flag_b = []
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
-        return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+        return string_list_a, string_list_b, block_flag_a, block_flag_b
 
     def get_input_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
         text_b = self.shortenable(example.text_b)
+        aug_text_a = self.shortenable(example.trans)
+        aug_text_b = self.shortenable(example.trans_b)
+        aug_string_list_a = [aug_text_a, self.sep, aug_text_b]
         string_list_a = [text_a, self.sep, text_b]
-        return string_list_a
+        return string_list_a, aug_string_list_a
 
 class SnliPVP(PVP):
     VERBALIZER = {
@@ -876,8 +884,11 @@ class SnliPVP(PVP):
     def get_input_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
         text_b = self.shortenable(example.text_b)
+        aug_text_a = self.shortenable(example.trans)
+        aug_text_b = self.shortenable(example.trans_b)
+        aug_string_list_a = [aug_text_a, self.sep, aug_text_b]
         string_list_a = [text_a, self.sep, text_b]
-        return string_list_a
+        return string_list_a, aug_string_list_a
 
 class QnliPVP(PVP):
     VERBALIZER = {
@@ -902,13 +913,16 @@ class QnliPVP(PVP):
         block_flag_b = []
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
-        return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+        return string_list_a, string_list_b, block_flag_a, block_flag_b
 
     def get_input_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
         text_b = self.shortenable(example.text_b)
+        aug_text_a = self.shortenable(example.trans)
+        aug_text_b = self.shortenable(example.trans_b)
+        aug_string_list_a = [aug_text_a, self.sep, aug_text_b]
         string_list_a = [text_a, self.sep, text_b]
-        return string_list_a
+        return string_list_a, aug_string_list_a
 
 class MrpcPVP(PVP):
     VERBALIZER = {
@@ -933,13 +947,16 @@ class MrpcPVP(PVP):
         block_flag_b = []
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
-        return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+        return string_list_a, string_list_b, block_flag_a, block_flag_b
 
     def get_input_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
         text_b = self.shortenable(example.text_b)
+        aug_text_a = self.shortenable(example.trans)
+        aug_text_b = self.shortenable(example.trans_b)
+        aug_string_list_a = [aug_text_a, self.sep, aug_text_b]
         string_list_a = [text_a, self.sep, text_b]
-        return string_list_a
+        return string_list_a, aug_string_list_a
 
 # class QQPPVP(PVP):
 #     VERBALIZER = {
@@ -989,13 +1006,16 @@ class QQPPVP(PVP):
         block_flag_b = []
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
-        return string_list_a, string_list_b, block_flag_a, block_flag_b, aug_string_list_a
+        return string_list_a, string_list_b, block_flag_a, block_flag_b
 
     def get_input_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
         text_b = self.shortenable(example.text_b)
+        aug_text_a = self.shortenable(example.trans)
+        aug_text_b = self.shortenable(example.trans_b)
+        aug_string_list_a = [aug_text_a, self.sep, aug_text_b]
         string_list_a = [text_a, self.sep, text_b]
-        return string_list_a
+        return string_list_a, aug_string_list_a
 
 class MRPVP(Sst2PVP):
     VERBALIZER = {

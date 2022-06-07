@@ -723,6 +723,7 @@ class TransformerModelWrapper(object):
                 'idx': torch.tensor([f.idx for f in features], dtype=torch.long),
                 'block_flag': torch.tensor([f.block_flag for f in features], dtype=torch.long),
                 'aug_ids': torch.tensor([f.aug_ids for f in features], dtype=torch.long),
+                'input_parts_ids': torch.tensor([f.input_parts_ids for f in features], dtype=torch.long)
             }
         else:
             feature_dict = {
@@ -767,13 +768,13 @@ class TransformerModelWrapper(object):
             tr_input_parts_ids = tr_input_parts_ids + \
                 ([self.tokenizer.pad_token_id] * tr_parts_padding_length)
 
-            if aug_ids:
-                aug_padding_length = self.config.max_seq_length - \
-                    len(aug_ids)
-                aug_ids = aug_ids + \
-                    ([self.tokenizer.pad_token_id] * aug_padding_length)
-                assert len(aug_ids) == self.config.max_seq_length
-                assert len(aug_ids) == len(input_ids)
+            #if aug_ids:
+            #    aug_padding_length = self.config.max_seq_length - \
+            #        len(aug_ids)
+            #    aug_ids = aug_ids + \
+            #        ([self.tokenizer.pad_token_id] * aug_padding_length)
+            #    assert len(aug_ids) == self.config.max_seq_length
+            #    assert len(aug_ids) == len(input_ids)
 
 
             attention_mask = attention_mask + ([0] * padding_length)
