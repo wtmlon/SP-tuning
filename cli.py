@@ -74,13 +74,13 @@ parser.add_argument("--dev_examples", default=-1, type=int,
                     help="The total number of dev examples to use, where -1 equals all examples.")
 parser.add_argument("--split_examples_evenly", action='store_true',
                     help="If true, train examples are not chosen randomly, but split evenly across all labels.")
-parser.add_argument("--learning_rate", default=1e-10, type=float,
+parser.add_argument("--learning_rate", default=1e-4, type=float,
                     help="The initial learning rate for Adam.")
 parser.add_argument("--warmup_lr", default=1e-2, type=float,
                     help="The initial learning rate for warmup.")
 parser.add_argument("--learning_rate_stage1", default=1e-4, type=float,
                     help="The initial learning rate for Adam in stage 1.")
-parser.add_argument("--weight_decay", default=0.05, type=float,
+parser.add_argument("--weight_decay", default=0.0, type=float,
                     help="Weight decay if we apply some.")
 parser.add_argument("--adam_epsilon", default=1e-8, type=float,
                     help="Epsilon for Adam optimizer.")
@@ -105,6 +105,13 @@ parser.add_argument('--prompt_encoder_type', type=str,
                     default="lstm", choices=['lstm', 'mlp', 'none', 'inner'])
 parser.add_argument("--eval_every_step", default=20, type=int, help="")
 
+parser.add_argument("--mix_coef", default=1.0, type=float,
+                    help="mix calibration cof")
+parser.add_argument("--div_coef", default=1.0, type=float,
+                    help="div calibration cof")
+parser.add_argument("--prompt_amp", type=int,
+                    help="prompt amplify count")
+
 # Enhanced training
 parser.add_argument("--two_stage_train", action='store_true', default=False,
                     help="Whether do two stage training")
@@ -118,6 +125,8 @@ parser.add_argument("--aug", action='store_true', default=False,
                     help="Whether use augment to train prompt generator")
 parser.add_argument("--soft_label", action='store_true', default=False,
                     help="Whether use soft label to train prompt generator")
+#parser.add_argument("--distill", action='store_true', default=False,
+#                    help="Whether use distillation to train prompt generator")
 
 
 def process_args(args):

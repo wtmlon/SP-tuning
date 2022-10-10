@@ -113,6 +113,21 @@ class PVP(ABC):
             return PVP.lowercase_first(s[0]), s[1]
         return s[0].lower() + s[1:]
 
+    def get_mlm_labels(self, parts, mlm_mask, tokens):
+        assert len(parts) == len(mlm_mask)
+
+        mlm_labels = [0] * len(tokens)
+        m_idx = 0
+        for i in range(len(parts)):
+            if mlm_mask[i] != 1:
+                m_idx += len(parts[i][0])
+            else:
+                break
+
+        mlm_labels[m_idx] = 1
+        return mlm_labels
+
+    #def encode(self, example: InputExample, priming: bool = False, labeled: bool = False, aug: bool = False, seed: int = 13, distill: bool=False) \
     def encode(self, example: InputExample, priming: bool = False, labeled: bool = False, aug: bool = False, seed: int = 13) \
             -> Tuple[List[int], List[int]]:
         """
@@ -127,6 +142,7 @@ class PVP(ABC):
         tokenizer = self.wrapper.tokenizer  # type: PreTrainedTokenizer
 
         parts_a, parts_b, block_flag_a, block_flag_b = self.get_parts(example)
+        #parts_a, parts_b, block_flag_a, block_flag_b, mlm_labels, distill_mlm_labels, prompt, distill_prompt = self.get_parts(example, distill=distill)
         input_parts_a, aug_parts_a = self.get_input_parts(example)
 
         kwargs = {'add_prefix_space': True} if isinstance(
@@ -165,14 +181,32 @@ class PVP(ABC):
         # add
         assert len(parts_a) == len(block_flag_a)
         assert len(parts_b) == len(block_flag_b)
+        #if distill:
+        #    assert len(parts_a) == len(mlm_labels)
+        #    assert len(parts_a) == len(distill_mlm_labels)
+        #    assert len(parts_a) == len(prompt)
+        #    assert len(parts_a) == len(distill_prompt)
 
         block_flag_a = [flag for (part, _), flag in zip(
             parts_a, block_flag_a) for _ in part]
         block_flag_b = [flag for (part, _), flag in zip(
             parts_b, block_flag_b) for _ in part]
+        #mlm_labels = [flag for (part, _), flag in zip(
+        #    parts_a, mlm_labels) for _ in part]
+        #distill_mlm_labels = [flag for (part, _), flag in zip(
+        #    parts_a, distill_mlm_labels) for _ in part]
+        #prompt = [flag for (part, _), flag in zip(
+        #    parts_a, prompt) for _ in part]
+        #distill_prompt = [flag for (part, _), flag in zip(
+        #    parts_a, distill_prompt) for _ in part]
 
         assert len(tokens_a) == len(block_flag_a)
         assert len(tokens_b) == len(block_flag_b)
+        #if distill:
+        #    assert len(tokens_a) == len(mlm_labels)
+        #    assert len(tokens_a) == len(distill_mlm_labels)
+        #    assert len(tokens_a) == len(prompt)
+        #    assert len(tokens_a) == len(distill_prompt)
 
         if tokens_b:
             input_ids = tokenizer.build_inputs_with_special_tokens(
@@ -188,11 +222,28 @@ class PVP(ABC):
                 tokens_a)
             block_flag = tokenizer.build_inputs_with_special_tokens(
                 block_flag_a)
+            #mlm_labels_flag = tokenizer.build_inputs_with_special_tokens(
+            #    mlm_labels)
+            #distill_mlm_labels_flag = tokenizer.build_inputs_with_special_tokens(
+            #    distill_mlm_labels)
+            #prompt_flag = tokenizer.build_inputs_with_special_tokens(
+            #    prompt)
+            #distill_prompt_flag = tokenizer.build_inputs_with_special_tokens(
+            #    distill_prompt)
 
         input_parts_ids = tokenizer.build_inputs_with_special_tokens(input_tokens_a)
 
         block_flag = [item if item in [0, 1] else 0 for item in block_flag]
+        #mlm_labels_flag = [item if item in [0, 1] else 0 for item in mlm_labels_flag]
+        #distill_mlm_labels_flag = [item if item in [0, 1] else 0 for item in distill_mlm_labels_flag]
+        #prompt_flag = [item if item in [0, 1] else 0 for item in prompt_flag]
+        #distill_prompt_flag = [item if item in [0, 1] else 0 for item in distill_prompt_flag]
         assert len(input_ids) == len(block_flag)
+        #if distill:
+        #    assert len(input_ids) == len(mlm_labels_flag)
+        #    assert len(input_ids) == len(distill_mlm_labels_flag)
+        #    assert len(input_ids) == len(prompt_flag)
+        #    assert len(input_ids) == len(distill_prompt_flag)
 
         aug_input_ids = []
         if aug and aug_parts_a:
@@ -207,6 +258,7 @@ class PVP(ABC):
             aug_input_ids = tokenizer.build_inputs_with_special_tokens(tokens_aug)
 
         # return input_ids, token_type_ids
+        #return input_ids, token_type_ids, block_flag, input_parts_ids, aug_input_ids, mlm_labels_flag, distill_mlm_labels_flag, prompt_flag, distill_prompt_flag
         return input_ids, token_type_ids, block_flag, input_parts_ids, aug_input_ids
 
     @staticmethod
@@ -266,7 +318,7 @@ class PVP(ABC):
         return labels
 
     def convert_mlm_logits_to_cls_logits(self, mlm_labels: torch.Tensor, logits: torch.Tensor) -> torch.Tensor:
-        masked_logits = logits[mlm_labels >= 0]
+        masked_logits = logits[mlm_labels > 0]
         cls_logits = torch.stack(
             [self._convert_single_mlm_logits_to_cls_logits(ml) for ml in masked_logits])
         return cls_logits
@@ -653,49 +705,38 @@ class WicPVP(PVP):
 
 class Sst2PVP(PVP):
     VERBALIZER = {
-        # "0": ["terrible"],
-        # "1": ["great"]
 
-        # Strange label setting
-        # "0": ["cat"],
-        # "1": ["dog"]
-
-        # "0": ["not"],
-        # "1": ["a"]
-
-        "0": ["a"],
-        "1": ["fun"]
-
-        # Multiple label setting
-        # "0": ["terrible", "bad", "awful"],
-        # "1": ["great", "good", "wonderful"]
-
-        # Reversed label setting
-        # '0': ['great'],
-        # '1': ['terrible']
+        "0": ["a", "terrible"],
+        "1": ["fun", "great"]
     }
 
-    #PATTERN = ['text_a', 'It', 'was', 'self.mask', '.']
-    PATTERN = ['text_a', 'the', 'the', 'self.mask', 'the']
+    PATTERN = ['text_a', 'It', 'was', 'self.mask', '.']
     BLOCK_FLAG = [0, 1, 1, 0, 1]
 
     # Only mask setting
     # PATTERN = ['text_a', 'self.mask']
     # BLOCK_FLAG = [0, 0]
 
+    #def get_parts(self, example: InputExample, distill: bool) -> FilledPattern:
     def get_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
 
         # few-shot
-        string_list_a = [text_a, 'the', 'the', self.mask, 'the']
-        #string_list_a = [text_a, 'It', 'was', self.mask, '.']
-        aug_string_list_a = [text_a, 'It', 'is', self.mask, '.']
-        # string_list_a = [text_a, self.mask]
+        #string_list_a = [text_a, 'It', 'was', self.mask, '.', self.sep, text_a, self.mask, self.mask, self.mask, self.mask]
+        string_list_a = [text_a, 'It', 'is', self.mask, '.']
         string_list_b = []
         block_flag_a = self.BLOCK_FLAG
+        #block_flag_inf = [0, 1, 1, 0, 1]
+        #mlm_labels = [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+        #distill_mlm_labels = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+        #prompt = [0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0]
+        #distill_prompt = [0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1]
         block_flag_b = []
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
+        #if distill:
+        #    return string_list_a, string_list_b, block_flag_a, block_flag_b, mlm_labels, distill_mlm_labels, prompt, distill_prompt
+        #else:
         return string_list_a, string_list_b, block_flag_a, block_flag_b
 
     def get_input_parts(self, example: InputExample) -> FilledPattern:
@@ -793,6 +834,7 @@ class TrecPVP(PVP):
 
     BLOCK_FLAG = [0, 1, 0]
 
+    #def get_parts(self, example: InputExample, distill: bool=False) -> FilledPattern:
     def get_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
 
@@ -802,6 +844,10 @@ class TrecPVP(PVP):
         string_list_b = []
         block_flag_a = self.BLOCK_FLAG
         block_flag_b = []
+        #distill_mlm_labels = [0, 0, 0, 1, 0, 0]
+        #mlm_labels = [1, 0, 0, 0, 0, 0]
+        #prompt = [0, 1, 0, 0, 0, 0]
+        #distill_prompt = [0, 0, 0, 0, 1, 0]
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
         return string_list_a, string_list_b, block_flag_a, block_flag_b
@@ -820,22 +866,16 @@ class MnliPVP(PVP):
         "neutral": ["Maybe"]
     }
 
-    #PATTERN = ['text_a', '?', 'self.mask', ',', 'text_b']
-    #PATTERN = ['text_a', '.', 'self.mask', ',', 'because', 'text_b']
-    #PATTERN = ['text_a', '.', 'self.mask', ' that\'s', ' because', 'text_b'] #13 21
-    PATTERN = ['text_a', '.', 'self.mask', ',', ' you', ' are', ' right', ',', 'text_b'] # 42
+    PATTERN = ['text_a', '?', 'self.mask', ',', 'text_b'] # 42
 
-    BLOCK_FLAG = [0, 1, 0, 1, 1, 1, 1, 1, 0]
+    BLOCK_FLAG = [0, 1, 0, 1, 0]
 
     def get_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
         text_b = self.shortenable(example.text_b)
 
         # few-shot
-        #string_list_a = [text_a, '?', self.mask, ',', text_b]
-        #string_list_a = [text_a, '.', self.mask, 'that\'s', 'because', text_b]
-        string_list_a = [text_a, '.', self.mask, ',', 'you', 'are', 'right', ',', text_b]
-        #aug_string_list_a = [text_a, '.', self.mask, 'of', 'course', text_b]
+        string_list_a = [text_a, '?', self.mask, ',', text_b]
         aug_string_list_a = [text_a, '.', self.mask, 'you\'re', 'right', text_b]
         string_list_b = []
         block_flag_a = self.BLOCK_FLAG
@@ -869,10 +909,7 @@ class SnliPVP(PVP):
         text_b = self.shortenable(example.text_b)
 
         # few-shot
-        #string_list_a = [text_a, '?', self.mask, ',', text_b]
-        #string_list_a = [text_a, '.', self.mask, 'that\'s', 'because', text_b]
         string_list_a = [text_a, '.', self.mask, ',', 'it', 'looks', 'like', text_b]
-        #aug_string_list_a = [text_a, '.', self.mask, 'of', 'course', text_b]
         aug_string_list_a = [text_a, '.', self.mask, 'it', 'is', 'just', text_b]
         string_list_b = []
         block_flag_a = self.BLOCK_FLAG
@@ -892,27 +929,36 @@ class SnliPVP(PVP):
 
 class QnliPVP(PVP):
     VERBALIZER = {
-        "not_entailment": ["No"],
-        "entailment": ["Yes"]
+        "not_entailment": ["No", "Instead", "Although"],
+        "entailment": ["Yes", "So", "Ah"]
     }
 
-    PATTERN = ['text_a', '?', 'self.mask', ',', ' it', ' is', ' possible', ' that', 'text_b']
+    PATTERN = ['text_a', '?', 'self.mask', ',', 'text_b']
 
-    BLOCK_FLAG = [0, 1, 0, 1, 1, 1, 1, 1, 0]
+    BLOCK_FLAG = [0, 1, 0, 1, 0]
 
+    #def get_parts(self, example: InputExample, distill: bool) -> FilledPattern:
     def get_parts(self, example: InputExample) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
         text_b = self.shortenable(example.text_b)
 
         # few-shot
-        #string_list_a = [text_a, '?', self.mask, ',', text_b]
-        string_list_a = [text_a, '?', self.mask, ',', 'it', 'is', 'possible', 'that', text_b]
-        aug_string_list_a = [text_a, '.', self.mask, ',', 'it', 'is', 'because', 'that', text_b]
+        string_list_a = [text_a, '?', self.mask, ',', text_b, self.sep, text_a, self.mask, self.mask, self.mask, text_b]
+        #aug_string_list_a = [text_a, '.', self.mask, ',', 'it', 'is', 'because', 'that', text_b]
+        #inf_string_list_a = [text_a, '?', self.mask, ',', text_b]
         string_list_b = []
         block_flag_a = self.BLOCK_FLAG
+        #block_flag_inf = [0, 1, 0, 1, 0]
+        #mlm_labels = [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        #distill_mlm_labels = [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+        #prompt = [0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0]
+        #distill_prompt = [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0]
         block_flag_b = []
         assert len(string_list_a) == len(block_flag_a)
         assert len(string_list_b) == len(block_flag_b)
+        #if distill:
+        #    return string_list_a, string_list_b, block_flag_a, block_flag_b, mlm_labels, distill_mlm_labels, prompt, distill_prompt
+        #else:
         return string_list_a, string_list_b, block_flag_a, block_flag_b
 
     def get_input_parts(self, example: InputExample) -> FilledPattern:
@@ -930,17 +976,16 @@ class MrpcPVP(PVP):
         "1": ["yes"]
     }
 
-    PATTERN = ['text_a', '.', 'self.mask', '.', ' at', ' the', ' same', ' time', 'text_b']
+    PATTERN = ['text_a', '?', 'self.mask', ',', 'text_b']
 
-    BLOCK_FLAG = [0, 1, 0, 1, 1, 1, 1, 1, 0]
+    BLOCK_FLAG = [0, 1, 0, 1, 0]
 
     def get_parts(self, example: InputExample, seed: bool = False) -> FilledPattern:
         text_a = self.shortenable(example.text_a)
         text_b = self.shortenable(example.text_b)
 
         # few-shot
-        #string_list_a = [text_a, '?', self.mask, ',', text_b]
-        string_list_a = [text_a, '.', self.mask, '.', 'at', 'the', 'same', 'time', text_b]
+        string_list_a = [text_a, '?', self.mask, ',', text_b]
         aug_string_list_a = [text_a, '.', self.mask, ',', 'that\'s', 'not', 'true', '.', text_b]
         string_list_b = []
         block_flag_a = self.BLOCK_FLAG

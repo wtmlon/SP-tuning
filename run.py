@@ -62,6 +62,12 @@ def main():
     run_parser.add_argument("--learning_rate", default=1e-4, type=float, help="The initial learning rate for Adam.")
     run_parser.add_argument("--weight_decay", default=0.05, type=float, help="Weight decay if we apply some.")
     run_parser.add_argument("--pet_per_gpu_train_batch_size", default=8, type=int, help="Batch size per GPU/CPU for PET training.")
+    run_parser.add_argument("--mix_coef", default=1.0, type=float, help="mix calibration cof")
+    run_parser.add_argument("--div_coef", default=1.0, type=float, help="diversity calibration cof")
+    run_parser.add_argument("--k_shot", default=16, type=int, help="k-shot")
+    run_parser.add_argument("--prompt_amp", type=int, help="prompt amplify count")
+    run_parser.add_argument("--full_shot", action='store_true', default=False, help="use full shot ?")
+    #run_parser.add_argument("--distill", action='store_true', default=False, help="use distill ?")
 
     run_args = run_parser.parse_args()
 
@@ -70,7 +76,7 @@ def main():
     single_tasks = ['SST-2', 'sst-5', 'mr',
                     'cr', 'mpqa', 'subj', 'trec', 'CoLA']
     pair_tasks = ['MNLI', 'MNLI-mm', 'SNLI',
-                  'QNLI', 'RTE-glue', 'MRPC', 'QQP']  # TODO: STS-B
+                  'QNLI', 'rte-glue', 'MRPC', 'QQP']  # TODO: STS-B
 
     if run_args.task in single_tasks + pair_tasks:
         tasks = [run_args.task]
@@ -103,15 +109,19 @@ def main():
         best_result_all = defaultdict(list)
         best_result_stage1 = defaultdict(list)
         for seed in seed_list:
-            data_split = '16-%d' % seed
-            if task == 'MNLI-mm':
-                data_dir = os.path.join('/apdcephfs/private_shaotiancai/datasets/data', 'k-shot', 'MNLI', data_split)
-            elif task == 'RTE-glue':
-                data_dir = os.path.join('/apdcephfs/private_shaotiancai/datasets/data', 'k-shot', 'RTE', data_split)
+            if not run_args.full_shot:
+                data_split = '{}-{}'.format(run_args.k_shot, seed)
+                if task == 'MNLI-mm':
+                    data_dir = os.path.join('./data', 'k-shot', 'MNLI', data_split)
+                elif task == 'rte-glue':
+                    data_dir = os.path.join('./data', 'k-shot', 'RTE', data_split)
+                else:
+                    data_dir = os.path.join('./data', 'k-shot', task, data_split)
             else:
-                data_dir = os.path.join('/apdcephfs/private_shaotiancai/datasets/data', 'k-shot', task, data_split)
+                data_dir = os.path.join('./data', 'original', task)
+                data_split = 'full-shot'
             # Change output directory name here!
-            task_dir = os.path.join('/apdcephfs/private_shaotiancai/code/model/DART_copy/output', task, run_args.encoder)
+            task_dir = os.path.join('./output', task, run_args.encoder)
             if run_args.x_input == 'replace':
                 task_dir = os.path.join(task_dir, 'x_input-' + run_args.x_input, 'warmup-' + str(run_args.warmup))
             if run_args.x_input == 'mix':
@@ -129,27 +139,27 @@ def main():
             output_dir = os.path.join(task_dir, data_split)
             arguments = ['--task_name', task,
                          '--data_dir', data_dir,
-                         '--pet_per_gpu_eval_batch_size', '256',
+                         '--pet_per_gpu_eval_batch_size', '32',
                          '--pet_max_steps', '1000',   # 1000
                          '--pet_repetitions', str(run_args.repeat)]
 
             # Whether load pre-trained weights from manual prompt
             if run_args.load_manual:
                 manual_output_dir = os.path.join(
-                    '/apdcephfs/private_shaotiancai/code/model/DART_copy/output', task, 'manual', data_split)
+                    './output', task, 'manual', data_split)
                 _, best_dir = get_best_results(
                     load_metrics(task.lower())[-1], manual_output_dir)
                 arguments.extend(['--model_name_or_path', best_dir])
                 logger.info("Load trained weights from %s..." % best_dir)
                 output_dir = os.path.join(
-                    '/apdcephfs/private_shaotiancai/code/model/DART_copy/output', task, run_args.encoder, 'manual', data_split)
+                    './output', task, run_args.encoder, 'manual', data_split)
             else:
-                arguments.extend(['--model_name_or_path', '/apdcephfs/private_shaotiancai/code/model/roberta-large',
-                                  '--cache_dir', '/apdcephfs/private_shaotiancai/code/model/roberta-large'])
+                arguments.extend(['--model_name_or_path', '../model/roberta-large',
+                                  '--cache_dir', './model/roberta-large'])
             arguments.extend(['--output_dir', output_dir])
 
             if run_args.x_input:
-                if task in ['MNLI', 'MNLI-mm', 'SNLI', 'RTE-glue']:
+                if task in ['MNLI', 'MNLI-mm', 'SNLI', 'rte-glue']:
                     arguments.extend(['--pet_max_seq_length', '256',
                                       '--pet_per_gpu_train_batch_size', str(run_args.pet_per_gpu_train_batch_size),
                                       '--pet_gradient_accumulation_steps', '2'])
@@ -158,7 +168,7 @@ def main():
                                       '--pet_per_gpu_train_batch_size', str(run_args.pet_per_gpu_train_batch_size),
                                       '--pet_gradient_accumulation_steps', '1'])
             else:
-                if task in ['MNLI', 'MNLI-mm', 'SNLI', 'RTE-glue']:
+                if task in ['MNLI', 'MNLI-mm', 'SNLI', 'rte-glue']:
                     arguments.extend(['--pet_max_seq_length', '256',
                                       '--pet_per_gpu_train_batch_size', str(run_args.pet_per_gpu_train_batch_size),
                                       '--pet_gradient_accumulation_steps', '2'])
@@ -184,6 +194,14 @@ def main():
             if run_args.x_input:
                 arguments.extend(
                     ['--x_input', run_args.x_input])
+                if run_args.x_input == 'mix':
+                    assert run_args.mix_coef > 0
+                    arguments.extend(
+                            ['--mix_coef', str(run_args.mix_coef)])
+
+            if run_args.prompt_amp:
+                arguments.extend(
+                        ['--prompt_amp', str(run_args.prompt_amp)])
 
             if run_args.warmup:
                 arguments.extend(
@@ -191,11 +209,18 @@ def main():
 
             if run_args.aug:
                 arguments.extend(
-                    ['--aug'])
+                        ['--aug'])
+                assert run_args.mix_coef > 0
+                arguments.extend(
+                        ['--div_coef', str(run_args.div_coef)])
 
             if run_args.soft_label:
                 arguments.extend(
                     ['--soft_label'])
+
+            #if run_args.distill:
+            #    arguments.extend(
+            #        ['--distill'])
 
             if run_args.warmup_lr:
                 arguments.extend(

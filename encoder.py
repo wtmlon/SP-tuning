@@ -2,6 +2,7 @@ import torch
 from transformers import GPT2Tokenizer
 
 from utils import get_verbalization_ids
+import torch.nn.functional as F
 
 
 class PromptEncoder(object):
@@ -24,8 +25,10 @@ class PromptEncoder(object):
 
         # Record label tokens
         label_token_ids = []
+        self.labels_len = []
         for label_idx, label in enumerate(label_list):
             verbalizers = pvp.verbalize(label)
+            self.labels_len.append(len(verbalizers))
             for verbalizer_idx, verbalizer in enumerate(verbalizers):
                 verbalizer_id = get_verbalization_ids(
                     verbalizer, tokenizer, force_single_token=True)
@@ -106,4 +109,69 @@ class PromptEncoder(object):
         return word_embeddings(self.lookup_tensor.to(word_embeddings.weight.device))
 
     def convert_mlm_logits_to_cls_logits(self, mlm_labels, logits):
-        return torch.index_select(logits[mlm_labels != -1], -1, self.m2c_tensor.to(logits.device))
+        labels_logits = torch.index_select(logits[mlm_labels != -1], -1, self.m2c_tensor.to(logits.device))
+        cls_logits = torch.zeros(logits.size(0), len(self.labels_len)).to(labels_logits.device)
+        for b in range(labels_logits.size(0)):
+            begin = 0
+            for i in range(len(self.labels_len)):
+                cls_logits[b, i] = torch.sum(labels_logits[b, begin : begin + self.labels_len[i]]) / self.labels_len[i]
+                begin = self.labels_len[i]
+
+        return cls_logits
+
+    def selective_convert_mlm_logits_to_cls_logits(self, mlm_labels, logits, prompt_embeds, model, bz):
+        labels_logits = torch.index_select(logits[mlm_labels > 0], -1, self.m2c_tensor.to(logits.device))
+        selective_idx = []
+        labels_embeds = []
+        begin_list = []
+        begin = 0
+        for i in range(len(self.labels_len)):
+            labels_embeds.append(model.get_input_embeddings().weight[self.m2c_tensor[begin:begin+self.labels_len[i]]].unsqueeze(0))   #dont add .data that will detach graph
+            begin_list.append(begin)
+            begin = self.labels_len[i]
+
+        #for convert_id in self.m2c_tensor:
+        #    labels_embeds.append(model.get_input_embeddings().weight[convert_id].unsqueeze(0))   #dont add .data that will detach graph
+        #labels_embeds = torch.cat(labels_embeds).unsqueeze(0).unsqueeze(3).repeat(labels_logits.size(0), 1, 1, prompt_embeds.size(1), 1)   # (bz, cls, cls_cnt, prompt_len, hidden)
+
+        #sim_score = F.cosine_similarity(labels_embeds, prompt_embeds.unsqueeze(1).unsqueeze(1).repeat(1, labels_embeds.size(1), labels_embeds.size(2), 1, 1), dim=4).mean(dim=3).max(2).indices
+
+        #sim_score = sim_score + torch.tensor(begin_list).to(sim_score.device)
+
+        highest_score_idx = []
+        for i in range(len(self.labels_len)):
+            highest_score_idx.append(labels_logits[:, begin_list[i]:begin_list[i]+self.labels_len[i]].max(1).indices.unsqueeze(0))
+
+        highest_score_idx = torch.cat(highest_score_idx).permute(1,0).to(labels_logits.device) + torch.tensor(begin_list).to(labels_logits.device)
+
+        # ensemble
+        m = labels_logits.size(0) // bz
+        labels_logit = []
+        tmp = []
+        for i in range(mlm_labels.size(0)):
+            tmp.append([i + j*bz for j in range(m)])
+            labels_logit.append(labels_logits[i, highest_score_idx[i]].unsqueeze(0))
+
+        labels_logits = torch.cat(labels_logit)
+        tmp = torch.tensor(tmp).to(labels_logits.device)
+
+        ensembles = []
+        for i in range(bz):
+            ensembles.append(labels_logits[tmp[i]].mean(dim=0).unsqueeze(0))
+
+        labels_logits = torch.cat(ensembles)
+
+        #sim_score = []
+        #for b in range(labels_logits.size(0)):
+        #    batch_score = []
+        #    for embeds in labels_embeds:
+        #        batch_score.append(F.cosine_similarity(prompt_embeds[b], embeds.repeat(prompt_embeds.size(1), 1)))
+
+        #    begin = 0
+        #    for i in range(len(self.labels_len)):
+        #        cls_logits[b, i] = torch.sum(labels_logits[b, begin : begin + self.labels_len[i]]) / self.labels_len[i]
+        #        begin = self.labels_len[i]
+
+        #    sim—score.append(batch_score)
+
+        return labels_logits

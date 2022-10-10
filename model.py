@@ -43,6 +43,58 @@ logger = logging.getLogger('model')
 
 CONFIG_NAME = 'wrapper_config.json'
 
+class PromptAmplifier(torch.nn.Module):
+    def __init__(self, config:WrapperConfig, prompt_length, vocab_size):
+        super(PromptAmplifier, self).__init__()
+        self.hidden_size = config.embed_size
+        self.pl = prompt_length #prompt length
+        self.max_seq_length = config.max_seq_length
+        self.vocab_size = vocab_size
+        self.config = config
+
+        self.M_gen = torch.nn.Linear(self.hidden_size, self.hidden_size)
+        self.Vlog_gen = torch.nn.Linear(self.hidden_size, self.hidden_size)
+
+        self.Decoder1 = torch.nn.Linear(self.pl, self.max_seq_length)
+        self.Decoder2 = torch.nn.Linear(self.hidden_size, self.vocab_size)
+
+    def sampling(self, M, Vlog):
+        prompt_all = []
+        for i in range(self.config.prompt_amp):
+            epsilon = torch.randn(M.shape).to(M.device)
+            prompt_i = M + torch.mul(torch.exp(Vlog), epsilon)
+            prompt_all.append(prompt_i.unsqueeze(0))
+
+        prompt_all = torch.cat(prompt_all).permute(1, 0, 2, 3)
+
+        return prompt_all 
+
+    def _decode(self, embeds):
+        embeds = embeds.permute(0, 1, 3, 2)
+        outp1 = self.Decoder1(embeds)
+        outp1 = outp1.permute(0, 1, 3, 2)
+        outp2 = self.Decoder2(outp1)
+        return outp2
+
+    def forward(self, embeds, input_ids):   # [bz, pl, hid], [bz, sql]
+        bz = embeds.size(0)
+        M = self.M_gen(embeds)
+        Vlog = self.Vlog_gen(embeds)
+
+        embeds = self.sampling(M, Vlog) # [bz, M, pl, hid]
+
+        kl_loss = 1 + Vlog - torch.square(M) - torch.exp(Vlog)
+        kl_loss = torch.sum(kl_loss)
+        kl_loss *= -0.5
+
+        re_output = self._decode(embeds) # [bz, M, sql, vocab]
+        re_output = re_output.reshape(-1, re_output.size(-1)) 
+        ground_truth = input_ids.unsqueeze(1).repeat(1, self.config.prompt_amp, 1) # [bz, M, sql]
+        ground_truth = ground_truth.reshape(-1) 
+        reconstruction_loss = torch.nn.CrossEntropyLoss()(re_output, ground_truth) 
+
+        return embeds, kl_loss, reconstruction_loss
+
 class PromptGenerator(torch.nn.Module):
     def __init__(self, config:WrapperConfig, prompt_length):
         super(PromptGenerator, self).__init__()
@@ -60,12 +112,14 @@ class PromptGenerator(torch.nn.Module):
             self.mlp_head = nn.Sequential(
                     torch.nn.Linear(2 * config.max_seq_length, self.hidden_size),
                     torch.nn.ReLU(),
+                    torch.nn.Linear(self.hidden_size, self.pl)
+                    )
+            '''
                     torch.nn.Linear(self.hidden_size, self.hidden_size * 2),
                     torch.nn.ReLU(),
                     torch.nn.Linear(self.hidden_size * 2, self.hidden_size),
                     torch.nn.ReLU(),
-                    torch.nn.Linear(self.hidden_size, self.pl)
-                    )
+            '''
         elif config.prompt_encoder_type == "mlp":
             self.mlp = torch.nn.Sequential(
                 torch.nn.Linear(config.max_seq_length, self.hidden_size),
@@ -145,10 +199,6 @@ class ContinuousPrompt(nn.Module):
                 self.mlp_head = nn.Sequential(
                         torch.nn.Linear(2 * config.max_seq_length, self.hidden_size),
                         torch.nn.ReLU(),
-                        torch.nn.Linear(self.hidden_size, self.hidden_size * 2),
-                        torch.nn.ReLU(),
-                        torch.nn.Linear(self.hidden_size * 2, self.hidden_size),
-                        torch.nn.ReLU(),
                         torch.nn.Linear(self.hidden_size, self.prompt_length)
                         )
                 '''
@@ -156,6 +206,10 @@ class ContinuousPrompt(nn.Module):
                         torch.nn.Linear(self.hidden_size * 2, self.hidden_size * 3),
                         torch.nn.ReLU(),
                         torch.nn.Linear(self.hidden_size * 3, self.hidden_size * 2),
+                        torch.nn.Linear(self.hidden_size, self.hidden_size * 2),
+                        torch.nn.ReLU(),
+                        torch.nn.Linear(self.hidden_size * 2, self.hidden_size),
+                        torch.nn.ReLU(),
                 '''
             else:
                 self.mlp_head = nn.Sequential(nn.Linear(2 * self.hidden_size, self.hidden_size),
@@ -192,6 +246,9 @@ class ContinuousPrompt(nn.Module):
         if self.warmup:
             self.prompt_generator = PromptGenerator(config, self.prompt_length)
 
+        if config.x_input and config.prompt_amp:
+            self.amplifier = PromptAmplifier(config, self.prompt_length, self.tokenizer.vocab_size)
+
 
 class TransformerModelWrapper(object):
     """A wrapper around a Transformer-based language model."""
@@ -223,6 +280,7 @@ class TransformerModelWrapper(object):
             self.model.cuda()
             # Use automatic mixed precision for faster training
             # self.scaler = GradScaler()
+        self.dev_err_set = {}
 
     def save(self, path: str) -> None:
         logger.info("Saving trained model at %s..." % path)
@@ -340,7 +398,7 @@ class TransformerModelWrapper(object):
                            score in result_dict.items()})
 
         train_batch_size = per_gpu_train_batch_size * max(1, n_gpu)
-        train_dataset = self._generate_dataset(train_data, aug = aug)
+        train_dataset = self._generate_dataset(train_data, aug = aug, is_train=True)
         train_sampler = RandomSampler(train_dataset)
         train_dataloader = DataLoader(
             train_dataset, sampler=train_sampler, batch_size=train_batch_size)
@@ -375,12 +433,19 @@ class TransformerModelWrapper(object):
             ]
             if self.config.soft_label:
                 embedding_parameters.append({'params': [p for p in cur_model.model.get_input_embeddings().parameters()], 'weight_decay': 0.0})
+            if self.config.prompt_amp:
+                embedding_parameters.append({'params': [p for p in cur_model.amplifier.parameters()], 'weight_decay': 0.0})
 
         elif self.config.prompt_encoder_type == "mlp":
             embedding_parameters = [
                 {'params': [p for p in cur_model.mlp.parameters()]},
                 {'params': [p for p in cur_model.prompt_embeddings.parameters()]}
             ]
+            if self.config.soft_label:
+                embedding_parameters.append({'params': [p for p in cur_model.model.get_input_embeddings().parameters()], 'weight_decay': 0.0})
+            if self.config.prompt_amp:
+                embedding_parameters.append({'params': [p for p in cur_model.amplifier.parameters()], 'weight_decay': 0.0})
+
         elif self.config.prompt_encoder_type == "none":
             pass
         elif self.config.prompt_encoder_type == "inner":
@@ -402,6 +467,7 @@ class TransformerModelWrapper(object):
                 if kwargs.get('fix_other_embeddings', False):
                     handle = self.encoder.add_embed_hook(cur_model.model)
                     # embedding_parameters[0]['weight_decay'] = 0.0
+
         optimizer_list, scheduler_list = [], []
         optimizer_list.append(
             AdamW(optimizer_grouped_parameters, lr=1e-5, eps=adam_epsilon))
@@ -412,7 +478,7 @@ class TransformerModelWrapper(object):
             optimizer_list.append(AdamW(
                 embedding_parameters, lr=learning_rate, eps=adam_epsilon))
             scheduler_list.append(get_linear_schedule_with_warmup(
-                optimizer_list[0], num_warmup_steps=warmup_steps, num_training_steps=t_total))
+                optimizer_list[1], num_warmup_steps=warmup_steps, num_training_steps=t_total))
 
         now = datetime.now()
         path_suffix = now.strftime('%m-%d_%H:%M:%S') + 'stage_%d' % stage
@@ -479,8 +545,8 @@ class TransformerModelWrapper(object):
                         "train_loss", (tr_loss - prev_loss), global_step=global_step)
                     writer.add_scalar(
                         "lr0", optimizer_list[0].param_groups[0]["lr"], global_step=global_step)
-                    writer.add_scalar(
-                        "lr1", optimizer_list[1].param_groups[0]["lr"], global_step=global_step)
+                    #writer.add_scalar(
+                    #    "lr1", optimizer_list[1].param_groups[0]["lr"], global_step=global_step)
                     prev_loss = tr_loss
 
                     # Unscales the gradients of optimizer's assigned params in-place
@@ -502,23 +568,23 @@ class TransformerModelWrapper(object):
                     # Evaluate every some steps
                     if global_step % self.config.eval_every_step == 0:
                         dev_res = self.eval(
-                            dev_data, eval_config.per_gpu_eval_batch_size, n_gpu, eval_config.metrics)
+                            dev_data, eval_config.per_gpu_eval_batch_size, n_gpu, eval_config.metrics, is_dev=True)
                         if kwargs.get('record_eval', False):
                             all_eval_dev.append(dev_res)
                         dev_scores = dev_res['scores']
                         log_scalars(dev_scores, 'dev')
                         # Evaluate sample and save model on best performance
-                        # if True:
+                        #if True:
                         if dev_scores[save_metric_name] >= best_dev_metric:
-                            # if True:
+                            #if True:
                             if dev_scores[save_metric_name] > best_dev_metric:
                                 early_stop_count = 0
-                                logger.info("%d Best %s on dev: %.4f | global step: %d" % (
-                                    global_step, save_metric_name, best_dev_metric, best_global_step))
+                                logger.info("%d Best %s on dev: %.4f | global step: %d | this time dev: %.4f" % (
+                                    global_step, save_metric_name, best_dev_metric, best_global_step, dev_scores[save_metric_name]))
                             else:
                                 early_stop_count += 1
-                                logger.info("Dev scores: %.4f | early_stop_count: %d" % (
-                                    dev_scores[save_metric_name], early_stop_count))
+                                logger.info("Dev scores: %.4f Best: %.4f| early_stop_count: %d" % (
+                                    dev_scores[save_metric_name], best_dev_metric, early_stop_count))
                             # Record best statistics
                             best_dev_metric = dev_scores[save_metric_name]
                             best_global_step = global_step
@@ -541,8 +607,8 @@ class TransformerModelWrapper(object):
                             early_stop_count += 1
                             if kwargs.get('record_eval', False):
                                 all_eval_test.append(None)
-                            logger.info("Dev scores: %.4f | early_stop_count: %d" % (
-                                dev_scores[save_metric_name], early_stop_count))
+                            logger.info("Dev1 scores: %.4f Best: %.4f | early_stop_count: %d" % (
+                                dev_scores[save_metric_name], best_dev_metric, early_stop_count))
 
                 if 0 < max_steps < global_step or early_stop_count >= early_stop_epochs:
                     break
@@ -564,9 +630,10 @@ class TransformerModelWrapper(object):
              eval_data: List[InputExample],
              per_gpu_eval_batch_size: int = 8,
              n_gpu: int = 1,
-             metrics: List[str] = ['acc']) -> Dict:
+             metrics: List[str] = ['acc'],
+             is_dev: bool=False) -> Dict:
 
-        eval_dataset = self._generate_dataset(eval_data)
+        eval_dataset = self._generate_dataset(eval_data, is_train=False)
         eval_batch_size = per_gpu_eval_batch_size * max(1, n_gpu)
         eval_sampler = SequentialSampler(eval_dataset)
         eval_dataloader = DataLoader(
@@ -581,8 +648,6 @@ class TransformerModelWrapper(object):
             self.model.eval()
             if self.config.device == 'cuda':
                 batch = {k: t.cuda() for k, t in batch.items()}
-            labels = batch['labels']
-            indices = batch['idx']
 
             with torch.no_grad():
                 logits = self.task_helper.eval_step(
@@ -590,7 +655,7 @@ class TransformerModelWrapper(object):
                 if logits is None:
                     # PATCH @ 2021.09.27: add masked hidden states of each sentence
                     logits, masked_full_logits, masked_hidden_states = self.mlm_eval_step(
-                        batch)
+                        batch, is_dev=is_dev)
                     if all_masked_hidden_states is None:
                         all_masked_full_logits = masked_full_logits.detach().cpu().numpy()
                         all_masked_hidden_states = masked_hidden_states.detach().cpu().numpy()
@@ -600,6 +665,8 @@ class TransformerModelWrapper(object):
                         all_masked_hidden_states = np.append(
                             all_masked_hidden_states, masked_hidden_states.detach().cpu().numpy(), axis=0)
 
+                labels = batch['labels']
+                indices = batch['idx']
                 prediction_scores = logits.float()
                 eval_loss = nn.CrossEntropyLoss()(
                     prediction_scores.view(-1, len(self.config.label_list)), labels.view(-1))
@@ -659,22 +726,47 @@ class TransformerModelWrapper(object):
 
     def mlm_train_step(self, labeled_batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Perform a MLM training step."""
-        inputs, embeds, aug_embeds = self._generate_default_inputs(labeled_batch, is_train=True)
+        inputs, embeds, aug_embeds, kl_loss, rec_loss = self._generate_default_inputs(labeled_batch, is_train=True)
         mlm_labels, labels = labeled_batch['mlm_labels'], labeled_batch['labels']
+        #mlm_labels, d_mlm_labels, prompt, d_prompt, labels = labeled_batch['mlm_flag'], labeled_batch['d_mlm_flag'], labeled_batch['p_flag'], \
+        #                                                        labeled_batch['d_p_flag'], labeled_batch['labels']
         model = self.model.module if hasattr(
             self.model, 'module') else self.model
         outputs = model.model(**inputs)
-        if self.config.prompt_encoder_type == "inner" or self.config.soft_label:
+        if self.config.prompt_encoder_type == "inner":
             prediction_scores = self.encoder.convert_mlm_logits_to_cls_logits(
                 mlm_labels, outputs[0])
+            #d_prediction_scores = self.encoder.convert_mlm_logits_to_cls_logits(
+            #    d_mlm_labels, outputs[0])
+        elif self.config.soft_label:
+            prediction_scores = self.encoder.selective_convert_mlm_logits_to_cls_logits(
+                mlm_labels, outputs[0], embeds, model.model, labels.size(0))
+            #d_prediction_scores = self.encoder.selective_convert_mlm_logits_to_cls_logits(
+            #    d_mlm_labels, outputs[0], embeds, model.model, labels.size(0))
         else:
             prediction_scores = self.pvp.convert_mlm_logits_to_cls_logits(
                 mlm_labels, outputs[0])
+            #d_prediction_scores = self.pvp.convert_mlm_logits_to_cls_logits(
+            #    d_mlm_labels, outputs[0])
+
         loss = nn.CrossEntropyLoss()(
             prediction_scores.view(-1, len(self.config.label_list)), labels.view(-1))
 
+        #if self.config.distill:
+        #    d_cls_loss = nn.CrossEntropyLoss()(
+        #            d_prediction_scores.view(-1, len(self.config.label_list)), labels.view(-1))
+        #    loss += d_cls_loss
+        #    prompt_logits = outputs[0][prompt>0]
+        #    d_prompt_logits = outputs[0][d_prompt>0]
+        #    p_loss = nn.MSELoss()(prompt_logits, d_prompt_logits)
+        #    loss += p_loss
+
+
         # Add loss of extra masked tokens
         if 'extra_mlm_labels' in labeled_batch:
+            if self.config.prompt_amp:
+                labeled_batch['extra_mlm_labels'] = labeled_batch['extra_mlm_labels'].repeat(self.config.prompt_amp, 1)
+
             extra_mlm_labels = labeled_batch['extra_mlm_labels']
             extra_loss = nn.CrossEntropyLoss()(outputs[0].view(-1, self.tokenizer.vocab_size),
                                                extra_mlm_labels.view(-1))
@@ -682,7 +774,11 @@ class TransformerModelWrapper(object):
 
         if self.config.aug and aug_embeds != None:
             aug_loss = self.cal_aug_loss(embeds, aug_embeds, 1)
-            loss += aug_loss
+            loss += self.config.div_coef * aug_loss
+
+        if self.config.prompt_amp:
+            loss += 1/5 * kl_loss
+            loss += 1/5 * rec_loss
 
         #add replace_embeds loss
         #if self.config.x_input and self.config.x_input == 'mix':
@@ -691,9 +787,9 @@ class TransformerModelWrapper(object):
 
         return loss
 
-    def mlm_eval_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def mlm_eval_step(self, batch: Dict[str, torch.Tensor], is_dev: bool=False) -> torch.Tensor:
         """Perform a MLM evaluation step."""
-        inputs, _, _ = self._generate_default_inputs(batch, is_train=False)
+        inputs, embeds, _, _, _ = self._generate_default_inputs(batch, is_train=False)
         model = self.model.module if hasattr(
             self.model, 'module') else self.model
         # PATCH @ 2021.09.27: add masked hidden states of each sentence
@@ -702,15 +798,32 @@ class TransformerModelWrapper(object):
         # Get outputs of encoder in last layer
         masked_full_logits = outputs[0][batch['mlm_labels'] >= 0]
         masked_hidden_states = outputs[1][-1][batch['mlm_labels'] >= 0]
+        mlm_labels, labels = batch['mlm_labels'], batch['labels']
 
         if self.config.prompt_encoder_type == "inner":
             return self.encoder.convert_mlm_logits_to_cls_logits(batch['mlm_labels'], outputs[0]), masked_full_logits, masked_hidden_states
+        elif self.config.soft_label:
+            prediction_scores = self.encoder.selective_convert_mlm_logits_to_cls_logits(
+                mlm_labels, outputs[0], embeds, model.model, labels.size(0))
+        else:
+            prediction_scores = self.pvp.convert_mlm_logits_to_cls_logits(batch['mlm_labels'], outputs[0])
 
-        prediction_scores = self.pvp.convert_mlm_logits_to_cls_logits(batch['mlm_labels'], outputs[0])
+        if is_dev and not self.config.prompt_amp: 
+            pred_l, gt_l = prediction_scores.view(-1, len(self.config.label_list)).max(dim=1), labels.view(-1)
+            is_false = pred_l[1] != gt_l
+            for i,j in enumerate(is_false):
+                if i not in self.dev_err_set:
+                    self.dev_err_set[i] = 0
+                if j == True:
+                    self.dev_err_set[i] += 1
+            #print(is_false.nonzero())
+            #print(self.dev_err_set)
+            #print(self.tokenizer.batch_decode(batch['input_ids'][is_false]))
+
         return prediction_scores, masked_full_logits, masked_hidden_states
 
-    def _generate_dataset(self, data: List[InputExample], labelled: bool = True, aug: bool = False):
-        features = self._convert_examples_to_features(data, labelled=labelled, aug=aug)
+    def _generate_dataset(self, data: List[InputExample], labelled: bool = True, aug: bool = False, is_train: bool=False):
+        features = self._convert_examples_to_features(data, labelled=labelled, aug=aug, is_train=is_train)
         # Convert list features to tensors
         if aug:
             feature_dict = {
@@ -723,8 +836,12 @@ class TransformerModelWrapper(object):
                 'idx': torch.tensor([f.idx for f in features], dtype=torch.long),
                 'block_flag': torch.tensor([f.block_flag for f in features], dtype=torch.long),
                 'aug_ids': torch.tensor([f.aug_ids for f in features], dtype=torch.long),
-                'input_parts_ids': torch.tensor([f.input_parts_ids for f in features], dtype=torch.long)
+                'input_parts_ids': torch.tensor([f.input_parts_ids for f in features], dtype=torch.long),
             }
+            #    'mlm_flag': torch.tensor([f.mlm_flag for f in features], dtype=torch.long),
+            #    'd_mlm_flag': torch.tensor([f.d_mlm_flag for f in features], dtype=torch.long),
+            #    'p_flag': torch.tensor([f.p_flag for f in features], dtype=torch.long),
+            #    'd_p_flag': torch.tensor([f.d_p_flag for f in features], dtype=torch.long),
         else:
             feature_dict = {
                 'input_ids': torch.tensor([f.input_ids for f in features], dtype=torch.long),
@@ -735,19 +852,24 @@ class TransformerModelWrapper(object):
                 'logits': torch.tensor([f.logits for f in features], dtype=torch.float),
                 'idx': torch.tensor([f.idx for f in features], dtype=torch.long),
                 'block_flag': torch.tensor([f.block_flag for f in features], dtype=torch.long),
-                'input_parts_ids': torch.tensor([f.input_parts_ids for f in features], dtype=torch.long)
+                'input_parts_ids': torch.tensor([f.input_parts_ids for f in features], dtype=torch.long),
             }
+            #    'mlm_flag': torch.tensor([f.mlm_flag for f in features], dtype=torch.long),
+            #    'd_mlm_flag': torch.tensor([f.d_mlm_flag for f in features], dtype=torch.long),
+            #    'p_flag': torch.tensor([f.p_flag for f in features], dtype=torch.long),
+            #    'd_p_flag': torch.tensor([f.d_p_flag for f in features], dtype=torch.long),
 
         if self.task_helper:
             self.task_helper.add_features_to_dict(features, feature_dict)
 
         return DictDataset(**feature_dict)
 
-    def _convert_examples_to_features(self, examples: List[InputExample], labelled: bool = True, aug: bool = False) -> List[InputFeatures]:
+    def _convert_examples_to_features(self, examples: List[InputExample], labelled: bool = True, aug: bool = False, is_train: bool=False) -> List[InputFeatures]:
         features = []
         for example in examples:
             # Preprocessor for models pretrained using a masked language modeling objective (e.g., BERT).
             #input_ids, token_type_ids, block_flag, aug_ids, input_parts_ids = self.pvp.encode(example, aug=aug, seed=self.config.seed)
+            #input_ids, token_type_ids, block_flag, input_parts_ids, tr_input_parts_ids, mlm_labels_flag, distill_mlm_labels_flag, prompt_flag, distill_prompt_flag = self.pvp.encode(example, aug=aug, seed=self.config.seed, distill=False)
             input_ids, token_type_ids, block_flag, input_parts_ids, tr_input_parts_ids = self.pvp.encode(example, aug=aug, seed=self.config.seed)
             attention_mask = [1] * len(input_ids)
             padding_length = self.config.max_seq_length - \
@@ -780,11 +902,19 @@ class TransformerModelWrapper(object):
             attention_mask = attention_mask + ([0] * padding_length)
             token_type_ids = token_type_ids + ([0] * padding_length)
             block_flag = block_flag + ([0] * padding_length)
+            #mlm_labels_flag = mlm_labels_flag + ([0] * padding_length)
+            #distill_mlm_labels_flag = distill_mlm_labels_flag + ([0] * padding_length)
+            #prompt_flag = prompt_flag + ([0] * padding_length)
+            #distill_prompt_flag = distill_prompt_flag + ([0] * padding_length)
 
             assert len(input_ids) == self.config.max_seq_length
             assert len(attention_mask) == self.config.max_seq_length
             assert len(token_type_ids) == self.config.max_seq_length
             assert len(block_flag) == self.config.max_seq_length
+            #assert len(mlm_labels_flag) == self.config.max_seq_length
+            #assert len(distill_mlm_labels_flag) == self.config.max_seq_length
+            #assert len(prompt_flag) == self.config.max_seq_length
+            #assert len(distill_prompt_flag) == self.config.max_seq_length
 
             label = self.label_map[example.label] if example.label is not None else -100
             logits = example.logits if example.logits else [-1]
@@ -807,6 +937,21 @@ class TransformerModelWrapper(object):
                                                aug_ids=tr_input_parts_ids,
                                                input_parts_ids = input_parts_ids
                                                )
+                #input_features = InputFeatures(input_ids=input_ids,
+                #                               attention_mask=attention_mask,
+                #                               token_type_ids=token_type_ids,
+                #                               label=label,
+                #                               mlm_labels=mlm_labels,
+                #                               logits=logits,
+                #                               idx=example.idx,
+                #                               block_flag=block_flag,
+                #                               mlm_flag=mlm_labels_flag,
+                #                               d_mlm_flag=distill_mlm_labels_flag,
+                #                               p_flag=prompt_flag,
+                #                               d_p_flag=distill_prompt_flag,
+                #                               aug_ids=tr_input_parts_ids,
+                #                               input_parts_ids = input_parts_ids
+                #                               )
             else:
                 input_features = InputFeatures(input_ids=input_ids,
                                                attention_mask=attention_mask,
@@ -818,6 +963,20 @@ class TransformerModelWrapper(object):
                                                block_flag=block_flag,
                                                input_parts_ids = input_parts_ids
                                                )
+                #input_features = InputFeatures(input_ids=input_ids,
+                #                               attention_mask=attention_mask,
+                #                               token_type_ids=token_type_ids,
+                #                               label=label,
+                #                               mlm_labels=mlm_labels,
+                #                               logits=logits,
+                #                               idx=example.idx,
+                #                               block_flag=block_flag,
+                #                               mlm_flag=mlm_labels_flag,
+                #                               d_mlm_flag=distill_mlm_labels_flag,
+                #                               p_flag=prompt_flag,
+                #                               d_p_flag=distill_prompt_flag,
+                #                               input_parts_ids = input_parts_ids
+                #                               )
 
             # Add meta input features
             if self.task_helper:
@@ -872,7 +1031,14 @@ class TransformerModelWrapper(object):
         else:
             raise ValueError("unknown prompt_encoder_type.")
 
-        return replace_embeds
+        return replace_embeds   #[bz, prompt_len, hidden]
+
+    def permute_prompt(self, replace_embeds):
+        replace_embeds = replace_embeds.unsqueeze(1).repeat(1, self.config.prompt_amp, 1, 1)
+        for i in range(self.config.prompt_amp):
+            replace_embeds[:,i,:] = replace_embeds[:, 0, torch.randperm(replace_embeds.size(2)), :]
+
+        return replace_embeds   # set trace debugged
 
     def _generate_default_inputs(self, batch: Dict[str, torch.Tensor], is_train: bool = False) -> Dict[str, torch.Tensor]:
         input_ids = batch['input_ids']
@@ -882,6 +1048,8 @@ class TransformerModelWrapper(object):
         model = self.model.module if hasattr(
             self.model, 'module') else self.model
 
+        kl_loss = None
+        rec_loss = None
         word_embeddings = model.model.get_input_embeddings()
         raw_embeds = word_embeddings(input_ids)
         parts_raw_embeds = word_embeddings(input_parts_ids)
@@ -889,9 +1057,25 @@ class TransformerModelWrapper(object):
         if self.config.aug and is_train and batch['aug_ids'] != None:
             aug_embeds = word_embeddings(batch['aug_ids'])
             aug_replace_embeds = self.get_replace_embeds(model, bz, aug_embeds)
+            if self.config.prompt_amp != None:
+                aug_replace_embeds, kl_loss, rec_loss = self.model.amplifier(aug_replace_embeds, batch['aug_ids']) # [bz, M, pl, hid]
+                #aug_replace_embeds = self.permute_prompt(aug_replace_embeds)
 
         #replace_embeds = self.get_replace_embeds(model, bz, raw_embeds.clone().detach().requires_grad_())
         replace_embeds = self.get_replace_embeds(model, bz, parts_raw_embeds)
+
+        if self.config.prompt_amp != None:
+            #replace_embeds = self.permute_prompt(replace_embeds)
+            replace_embeds, kl_loss, rec_loss = self.model.amplifier(replace_embeds, input_ids) # [bz, M, pl, hid]
+            raw_embeds = raw_embeds.repeat(self.config.prompt_amp, 1, 1)
+            batch['attention_mask'] = batch['attention_mask'].repeat(self.config.prompt_amp, 1)
+            batch['labels'] = batch['labels'].repeat(self.config.prompt_amp)
+            batch['mlm_labels'] = batch['mlm_labels'].repeat(self.config.prompt_amp, 1)
+            #if self.config.distill and is_train:
+            #    batch['mlm_flag'] = batch['mlm_flag'].repeat(self.config.prompt_amp, 1)
+            #    batch['d_mlm_flag'] = batch['d_mlm_flag'].repeat(self.config.prompt_amp, 1)
+            #    batch['p_flag'] = batch['p_flag'].repeat(self.config.prompt_amp, 1)
+            #    batch['d_p_flag'] = batch['d_p_flag'].repeat(self.config.prompt_amp, 1)
 
         if replace_embeds is not None:  # For normal cases where prompt encoder is not None
             blocked_indices = (block_flag == 1).nonzero(as_tuple=False).reshape(
@@ -900,13 +1084,21 @@ class TransformerModelWrapper(object):
             for bidx in range(bz):
                 for i in range(blocked_indices.shape[1]):
                     if self.config.x_input:
-                        if self.config.x_input == 'replace':
-                            raw_embeds[bidx, blocked_indices[bidx, i], :] = replace_embeds[bidx, i, :]
-                        elif self.config.x_input == 'mix':
-                            raw_embeds[bidx, blocked_indices[bidx, i], :] = raw_embeds[bidx, blocked_indices[bidx, i], :] + replace_embeds[bidx, i, :]
-                        elif self.config.x_input == 'mul':
-                            raw_embeds[bidx, blocked_indices[bidx, i], :] = torch.mul(raw_embeds[bidx, blocked_indices[bidx, i], :].clone().detach().requires_grad_(), replace_embeds[bidx, i, :])
-                            #raw_embeds[bidx, blocked_indices[bidx, i], :] = raw_embeds[bidx, blocked_indices[bidx, i], :].mul(replace_embeds[bidx, i, :])
+                        if not self.config.prompt_amp:
+                            if self.config.x_input == 'replace':
+                                raw_embeds[bidx, blocked_indices[bidx, i], :] = replace_embeds[bidx, i, :]
+                            elif self.config.x_input == 'mix':
+                                raw_embeds[bidx, blocked_indices[bidx, i], :] = raw_embeds[bidx, blocked_indices[bidx, i], :] + self.config.mix_coef * replace_embeds[bidx, i, :]
+                            elif self.config.x_input == 'mul':
+                                raw_embeds[bidx, blocked_indices[bidx, i], :] = torch.mul(raw_embeds[bidx, blocked_indices[bidx, i], :].clone().detach().requires_grad_(), replace_embeds[bidx, i, :])
+                                #raw_embeds[bidx, blocked_indices[bidx, i], :] = raw_embeds[bidx, blocked_indices[bidx, i], :].mul(replace_embeds[bidx, i, :])
+                        else:
+                            for m in range(self.config.prompt_amp):
+                                if self.config.x_input == 'replace':
+                                    raw_embeds[bidx + m * bz, blocked_indices[bidx, i], :] = replace_embeds[bidx, m, i, :]
+                                elif self.config.x_input == 'mix':
+                                    raw_embeds[bidx + m * bz, blocked_indices[bidx, i], :] = raw_embeds[bidx + m * bz, blocked_indices[bidx, i], :] + self.config.mix_coef * replace_embeds[bidx, m, i, :]
+
                     else:
                         raw_embeds[bidx, blocked_indices[bidx, i],
                                 :] = replace_embeds[i, :]
@@ -919,7 +1111,7 @@ class TransformerModelWrapper(object):
         if self.config.model_type in ['bert']:
             inputs['token_type_ids'] = batch['token_type_ids']
 
-        return inputs, replace_embeds, aug_replace_embeds
+        return inputs, replace_embeds, aug_replace_embeds, kl_loss, rec_loss
 
     def _add_extra_mask(self, batch: Dict[str, torch.Tensor], mask_rate: float) -> None:
         input_ids = batch['input_ids']
@@ -963,7 +1155,7 @@ class TransformerModelWrapper(object):
               task_name='MNLI', **_):
 
         train_batch_size = per_gpu_train_batch_size * max(1, n_gpu)
-        train_dataset = self._generate_dataset(train_data)
+        train_dataset = self._generate_dataset(train_data, is_train=False)
         train_sampler = RandomSampler(train_dataset)
         train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=train_batch_size)
 

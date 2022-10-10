@@ -81,7 +81,7 @@ class InputFeatures(object):
     """A set of numeric features obtained from an :class:`InputExample`"""
 
     def __init__(self, input_ids, attention_mask, token_type_ids, label, mlm_labels=None, logits=None,
-                 meta: Optional[Dict] = None, idx=-1, block_flag=None, aug_ids=None, input_parts_ids=None):
+                 meta: Optional[Dict] = None, idx=-1, block_flag=None, aug_ids=None, input_parts_ids=None, mlm_flag=None, d_mlm_flag=None, p_flag=None, d_p_flag=None):
         """
         Create new InputFeatures.
         :param input_ids: the input ids corresponding to the original text or text sequence
@@ -103,6 +103,10 @@ class InputFeatures(object):
         self.logits = logits
         self.idx = idx
         self.block_flag = block_flag
+        self.mlm_flag = mlm_flag
+        self.d_mlm_flag = d_mlm_flag
+        self.p_flag = p_flag
+        self.d_p_flag = d_p_flag
         self.meta = meta if meta else {}
 
     def __repr__(self):

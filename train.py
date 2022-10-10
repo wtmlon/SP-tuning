@@ -270,7 +270,7 @@ def evaluate_single_model(pattern_id,
     eval_result = wrapper.eval(
         eval_data, eval_config.per_gpu_eval_batch_size, eval_config.n_gpu, eval_config.metrics)
     dev_result = wrapper.eval(
-        dev_data, eval_config.per_gpu_eval_batch_size, eval_config.n_gpu, eval_config.metrics)
+        dev_data, eval_config.per_gpu_eval_batch_size, eval_config.n_gpu, eval_config.metrics, is_dev=True)
 
     logger.info(
         "--- RESULT (pattern_id={}) ---".format(pattern_id))

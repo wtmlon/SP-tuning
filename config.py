@@ -109,7 +109,11 @@ class WrapperConfig(object):
                  warmup: bool = False,
                  aug: bool = False,
                  soft_label: bool = False,
-                 seed: int = 13):
+                 seed: int = 13,
+                 mix_coef: float = 1.0,
+                 div_coef: float = 1.0,
+                 prompt_amp: int=None):
+        #         distill: bool=False):
         self.device = device
         self.model_type = model_type
         self.model_name_or_path = model_name_or_path
@@ -127,6 +131,10 @@ class WrapperConfig(object):
         self.aug = aug
         self.soft_label = soft_label
         self.seed = seed
+        self.mix_coef = mix_coef
+        self.div_coef = div_coef
+        self.prompt_amp = prompt_amp
+        #self.distill = distill
 
 
 def load_pet_configs(args) -> Tuple[WrapperConfig, TrainConfig, EvalConfig]:
@@ -148,7 +156,11 @@ def load_pet_configs(args) -> Tuple[WrapperConfig, TrainConfig, EvalConfig]:
                               warmup=args.warmup,
                               aug=args.aug,
                               soft_label=args.soft_label,
-                              seed=args.seed)
+                              seed=args.seed,
+                              mix_coef=args.mix_coef,
+                              div_coef=args.div_coef,
+                              prompt_amp=args.prompt_amp,)
+    #                          distill=args.distill)
 
     train_cfg = TrainConfig(device=args.device,
                             per_gpu_train_batch_size=args.pet_per_gpu_train_batch_size,
