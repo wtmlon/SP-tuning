@@ -31,7 +31,7 @@ def train_pet(args):
 
     # Load dataset
     train_data = load_examples(args.task_name, args.data_dir, TRAIN_SET,
-                               num_examples=args.train_examples, split_examples_evenly=args.split_examples_evenly, aug=args.aug)
+                               num_examples=args.train_examples, split_examples_evenly=args.split_examples_evenly, aug=args.aug, prompt=args.t5_spt)
     eval_data = load_examples(args.task_name, args.data_dir, TEST_SET if args.eval_set == 'test' else DEV_SET,
                               num_examples=args.eval_examples, split_examples_evenly=args.split_examples_evenly)
     dev_data = load_examples(args.task_name, args.data_dir, DEV32_SET,
@@ -188,28 +188,28 @@ def train_single_model(train_data: List[InputExample],
         logger.warning('Training method was called without training examples')
     else:
         if config.warmup:
-            if os.path.exists(os.path.join('/apdcephfs/private_shaotiancai/code/model/DART_copy/lt/'+model.config.task_name.upper(), "warmup.pth")):
-                print("============the warmup PG model exists================")
-                model.load_warmup_pth(
-                    '/apdcephfs/private_shaotiancai/code/model/DART_copy/lt/' + model.config.task_name.upper())
-            else:
-                print("============the warmup PG model training starts================")
-                model.warmup(
-                    train_data=train_data,
-                    per_gpu_train_batch_size=config.per_gpu_train_batch_size,
-                    n_gpu=config.n_gpu,
-                    num_train_epochs=config.num_train_epochs,
-                    max_steps=config.max_steps,
-                    gradient_accumulation_steps=config.gradient_accumulation_steps,
-                    weight_decay=config.weight_decay,
-                    learning_rate=config.learning_rate,
-                    adam_epsilon=config.adam_epsilon,
-                    warmup_steps=config.warmup_steps,
-                    max_grad_norm=config.max_grad_norm,
-                    warmup_lr=config.warmup_lr,
-                    task_name=model.config.task_name
-                )
-                model.load_warmup_pth('/apdcephfs/private_shaotiancai/code/model/DART_copy/lt/'+model.config.task_name.upper())
+            #if os.path.exists(os.path.join('./warmup'+model.config.task_name.upper(), "warmup.pth")):
+            #    print("============the warmup PG model exists================")
+            #    model.load_warmup_pth(
+            #        './warmup' + model.config.task_name.upper())
+            #else:
+            print("============the warmup PG model training starts================")
+            model.warmup(
+                train_data=train_data,
+                per_gpu_train_batch_size=config.per_gpu_train_batch_size,
+                n_gpu=config.n_gpu,
+                num_train_epochs=config.num_train_epochs,
+                max_steps=config.max_steps,
+                gradient_accumulation_steps=config.gradient_accumulation_steps,
+                weight_decay=config.weight_decay,
+                learning_rate=config.learning_rate,
+                adam_epsilon=config.adam_epsilon,
+                warmup_steps=config.warmup_steps,
+                max_grad_norm=config.max_grad_norm,
+                warmup_lr=config.warmup_lr,
+                task_name=model.config.task_name
+            )
+            model.load_warmup_pth('./warmup'+model.config.task_name.upper())
 
         # Learning rate for different stages
         if kwargs.get('stage', 0) == 1:

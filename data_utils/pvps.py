@@ -145,6 +145,7 @@ class PVP(ABC):
         #parts_a, parts_b, block_flag_a, block_flag_b, mlm_labels, distill_mlm_labels, prompt, distill_prompt = self.get_parts(example, distill=distill)
         input_parts_a, aug_parts_a = self.get_input_parts(example)
 
+
         kwargs = {'add_prefix_space': True} if isinstance(
             tokenizer, GPT2Tokenizer) else {}
 
@@ -257,9 +258,21 @@ class PVP(ABC):
                         _ in aug_parts_a for token_id in part] if aug_parts_a else []
             aug_input_ids = tokenizer.build_inputs_with_special_tokens(tokens_aug)
 
+        extra = {}
+        if self.wrapper.config.t5_spt:
+            prompt_l = self.get_prompt_parts(example)
+            prompt_l1 = [x if isinstance(x, tuple) else (x, False) for x in prompt_l]
+            prompt_l2 = [(tokenizer.encode(x, add_special_tokens=False, **kwargs), s)
+                       for x, s in prompt_l1 if x]
+            self.truncate(
+                prompt_l2, [], max_length=self.wrapper.model.prompt_length - num_special)
+            prompt_t = [token_id for part, _ in prompt_l2 for token_id in part]
+            prompt_ids = tokenizer.build_inputs_with_special_tokens(prompt_t)
+            extra['prompt'] = prompt_ids
+
         # return input_ids, token_type_ids
         #return input_ids, token_type_ids, block_flag, input_parts_ids, aug_input_ids, mlm_labels_flag, distill_mlm_labels_flag, prompt_flag, distill_prompt_flag
-        return input_ids, token_type_ids, block_flag, input_parts_ids, aug_input_ids
+        return input_ids, token_type_ids, block_flag, input_parts_ids, aug_input_ids, extra
 
     @staticmethod
     def _seq_length(parts: List[Tuple[str, bool]], only_shortenable: bool = False):
@@ -929,13 +942,20 @@ class SnliPVP(PVP):
 
 class QnliPVP(PVP):
     VERBALIZER = {
-        "not_entailment": ["No", "Instead", "Although"],
-        "entailment": ["Yes", "So", "Ah"]
+        "not_entailment": ["No"],
+        "entailment": ["Yes"]
     }
 
-    PATTERN = ['text_a', '?', 'self.mask', ',', 'text_b']
+    #PATTERN = ['text_a', '?', 'self.mask', ',', 'text_b']
+    PATTERN = ['text_a', '.', 'self.mask', ',', 'it', 'is', 'because', 'that', 'text_b']
+    #PATTERN = ['text_a', '.', ',', 'it', 'is', 'because', 'that', 'text_b', 'self.mask']
+    #PATTERN = ['text_a', 'the', 'self.mask', 'the', 'the', 'the', 'the', 'the', 'the', 'the', 'the', 'text_b']
+    #PATTERN = ['text_a', 'the', 'self.mask', 'the', 'the', 'the', 'the', 'text_b']
 
-    BLOCK_FLAG = [0, 1, 0, 1, 0]
+    #BLOCK_FLAG = [0, 1, 0, 1, 0]
+    BLOCK_FLAG = [0, 1, 0, 1, 1, 1, 1, 1, 0]
+    #BLOCK_FLAG = [0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0]
+    #BLOCK_FLAG = [0, 1, 0, 1, 1, 1, 1, 0]
 
     #def get_parts(self, example: InputExample, distill: bool) -> FilledPattern:
     def get_parts(self, example: InputExample) -> FilledPattern:
@@ -943,8 +963,10 @@ class QnliPVP(PVP):
         text_b = self.shortenable(example.text_b)
 
         # few-shot
-        string_list_a = [text_a, '?', self.mask, ',', text_b, self.sep, text_a, self.mask, self.mask, self.mask, text_b]
-        #aug_string_list_a = [text_a, '.', self.mask, ',', 'it', 'is', 'because', 'that', text_b]
+        #string_list_a = [text_a, '?', self.mask, ',', text_b]
+        string_list_a = [text_a, '.', self.mask, ',', 'it', 'is', 'because', 'that', text_b]
+        #string_list_a = [text_a, 'the', self.mask, 'the', 'the', 'the', 'the', 'the', 'the', 'the', 'the', text_b]
+        #string_list_a = [text_a, 'the', self.mask, 'the', 'the', 'the', 'the', text_b]
         #inf_string_list_a = [text_a, '?', self.mask, ',', text_b]
         string_list_b = []
         block_flag_a = self.BLOCK_FLAG
@@ -969,6 +991,11 @@ class QnliPVP(PVP):
         aug_string_list_a = [aug_text_a, self.sep, aug_text_b]
         string_list_a = [text_a, self.sep, text_b]
         return string_list_a, aug_string_list_a
+    
+    def get_prompt_parts(self, example: InputExample) -> FilledPattern:
+        prompt = self.shortenable(example.prompt)
+        prompt_l = [prompt]
+        return prompt_l
 
 class MrpcPVP(PVP):
     VERBALIZER = {

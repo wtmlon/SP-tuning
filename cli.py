@@ -102,7 +102,7 @@ parser.add_argument("--eval_set", choices=['dev', 'test'], default='dev',
                     help="Whether to perform evaluation on the dev set or the test set")
 parser.add_argument("--embed_size", default=128, type=int, help="")
 parser.add_argument('--prompt_encoder_type', type=str,
-                    default="lstm", choices=['lstm', 'mlp', 'none', 'inner'])
+                    default="lstm", choices=['lstm', 'mlp', 'none', 'inner', 'sa'])
 parser.add_argument("--eval_every_step", default=20, type=int, help="")
 
 parser.add_argument("--mix_coef", default=1.0, type=float,
@@ -111,6 +111,10 @@ parser.add_argument("--div_coef", default=1.0, type=float,
                     help="div calibration cof")
 parser.add_argument("--prompt_amp", type=int,
                     help="prompt amplify count")
+parser.add_argument("--t5_spt", action='store_true', default=False,
+                    help="t5 sptuning")
+parser.add_argument("--auto_pos", action='store_true', default=False,
+                    help="auto position")
 
 # Enhanced training
 parser.add_argument("--two_stage_train", action='store_true', default=False,

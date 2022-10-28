@@ -573,8 +573,8 @@ class RecordProcessor(DataProcessor):
 class Sst2Processor(DataProcessor):
     """Processor for the SST-2 data set (GLUE)."""
 
-    def get_train_examples(self, data_dir, aug):
-        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train", use_trans=aug)
+    def get_train_examples(self, data_dir, aug, prompt):
+        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train", use_trans=aug, prompt=None)
 
     def get_dev_examples(self, data_dir):
         return self._create_examples(os.path.join(data_dir, "dev.tsv"), "dev")
@@ -593,7 +593,7 @@ class Sst2Processor(DataProcessor):
     def get_labels(self):
         return ["0", "1"]
 
-    def _create_examples(self, path: str, set_type: str, use_trans: bool=False) -> List[InputExample]:
+    def _create_examples(self, path: str, set_type: str, use_trans: bool=False, prompt: bool=False) -> List[InputExample]:
         examples = []
 
         with open(path, encoding='utf8') as f:
@@ -622,8 +622,8 @@ class MnliProcessor(DataProcessor):
     TEXT_B_INDEX = 9
     LABEL_INDEX = -1
 
-    def get_train_examples(self, data_dir, aug):
-        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train", use_trans=aug)
+    def get_train_examples(self, data_dir, aug, prompt):
+        return self._create_examples(os.path.join(data_dir, "train.tsv"), "train", use_trans=aug, prompt=prompt)
 
     def get_dev_examples(self, data_dir):
         return self._create_examples(os.path.join(data_dir, "dev_matched.tsv"), "dev")
@@ -643,9 +643,10 @@ class MnliProcessor(DataProcessor):
         return ["contradiction", "entailment", "neutral"]
 
     def _create_examples(self, path: str, set_type: str, hypothesis_name: str = "hypothesis",
-            premise_name: str = "premise", use_trans: bool=False) -> List[InputExample]:
+            premise_name: str = "premise", use_trans: bool=False, prompt: bool=False) -> List[InputExample]:
         examples = []
 
+        #with open(path, encoding='utf8') as f, open(path+'p', encoding='utf-8') as p:
         with open(path, encoding='utf8') as f:
             for i, line in enumerate(f.readlines()):
                 if i == 0:
@@ -656,13 +657,20 @@ class MnliProcessor(DataProcessor):
                 text_b = line[self.TEXT_B_INDEX]
                 label = line[self.LABEL_INDEX]
 
+                tmp = None
                 if use_trans:
                     trans = linecache.getline(path + '1', i).rstrip('\n').split('\t')
-                    examples.append(InputExample(
-                        guid=guid, text_a=text_a, text_b=text_b, label=label, trans=trans[0], trans_b=trans[1]))
+                    tmp =InputExample(
+                        guid=guid, text_a=text_a, text_b=text_b, label=label, trans=trans[0], trans_b=trans[1])
                 else:
-                    examples.append(InputExample(
-                        guid=guid, text_a=text_a, text_b=text_b, label=label))
+                    tmp = InputExample(
+                        guid=guid, text_a=text_a, text_b=text_b, label=label)
+
+                if prompt:
+                    prompt = linecache.getline(path + 'p', i).rstrip('\n')
+                    tmp.prompt = prompt
+                
+                examples.append(tmp)
 
         return examples
 
@@ -862,7 +870,7 @@ DEV32_SET = "dev32"
 
 
 def load_examples(task, data_dir: str, set_type: str, *_, num_examples: int = None,
-        seed: int = 42, split_examples_evenly: bool = False, aug: bool=True) -> List[InputExample]:
+        seed: int = 42, split_examples_evenly: bool = False, aug: bool=True, prompt: bool=False) -> List[InputExample]:
     """Load examples for a given task."""
 
     def eq_div(N, i):
@@ -897,7 +905,7 @@ def load_examples(task, data_dir: str, set_type: str, *_, num_examples: int = No
     elif set_type == TEST_SET:
         examples = processor.get_test_examples(data_dir)
     elif set_type == TRAIN_SET:
-        examples = processor.get_train_examples(data_dir, aug=aug)
+        examples = processor.get_train_examples(data_dir, aug=aug, prompt=prompt)
     elif set_type == UNLABELED_SET:
         examples = processor.get_unlabeled_examples(data_dir)
         for example in examples:

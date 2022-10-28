@@ -43,7 +43,7 @@ def get_best_results(metric, output_dir, result_file='results.json'):
 def main():
     run_parser = ArgumentParser()
     run_parser.add_argument("--encoder",
-                            choices=['manual', 'lstm', 'inner', 'inner2', 'mlp'],
+                            choices=['manual', 'lstm', 'inner', 'inner2', 'mlp', 'sa'],
                             default='manual')
     run_parser.add_argument("--task", default='all')
     run_parser.add_argument("--num_splits", type=int, default=-1)
@@ -66,6 +66,8 @@ def main():
     run_parser.add_argument("--div_coef", default=1.0, type=float, help="diversity calibration cof")
     run_parser.add_argument("--k_shot", default=16, type=int, help="k-shot")
     run_parser.add_argument("--prompt_amp", type=int, help="prompt amplify count")
+    run_parser.add_argument("--t5_spt", action='store_true', default=False, help="use T5 Sp tuning ?")
+    run_parser.add_argument("--auto_pos", action='store_true', default=False, help="use auto position ?")
     run_parser.add_argument("--full_shot", action='store_true', default=False, help="use full shot ?")
     #run_parser.add_argument("--distill", action='store_true', default=False, help="use distill ?")
 
@@ -202,6 +204,13 @@ def main():
             if run_args.prompt_amp:
                 arguments.extend(
                         ['--prompt_amp', str(run_args.prompt_amp)])
+                if run_args.t5_spt:
+                    arguments.extend(
+                            ['--t5_spt'])
+
+            if run_args.auto_pos:
+                arguments.extend(
+                    ['--auto_pos'])
 
             if run_args.warmup:
                 arguments.extend(

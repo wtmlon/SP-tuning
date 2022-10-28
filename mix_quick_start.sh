@@ -1,13 +1,18 @@
 python -m pdb run.py   \
     --encoder lstm \
-    --task SST-2 \
-    --pet_per_gpu_train_batch_size 8 \
+    --task QNLI \
+    --pet_per_gpu_train_batch_size 4 \
     --learning_rate 1e-5    \
-    --weight_decay 0.05  \
-    --num_splits 0 \
-    --x_input mix   \
+    --extra_mask_rate 0.1 \
+    --weight_decay 0.1  \
+    --x_input replace  \
+    --warmup    \
+    --warmup_lr 1e-4  \
     --mix_coef 1 \
     --div_coef 10   \
-    --prompt_amp 3
+    --aug
+#    --num_splits 4 \
+#    --prompt_amp 3 
 #    --soft_label    \
-#    --aug   \
+#    --auto_pos  \
+#    --t5_spt    \

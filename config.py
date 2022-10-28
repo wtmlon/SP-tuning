@@ -112,7 +112,9 @@ class WrapperConfig(object):
                  seed: int = 13,
                  mix_coef: float = 1.0,
                  div_coef: float = 1.0,
-                 prompt_amp: int=None):
+                 prompt_amp: int=None,
+                 t5_spt: bool=False,
+                 auto_pos: bool=False):
         #         distill: bool=False):
         self.device = device
         self.model_type = model_type
@@ -134,6 +136,8 @@ class WrapperConfig(object):
         self.mix_coef = mix_coef
         self.div_coef = div_coef
         self.prompt_amp = prompt_amp
+        self.t5_spt = t5_spt
+        self.auto_pos = auto_pos
         #self.distill = distill
 
 
@@ -159,7 +163,9 @@ def load_pet_configs(args) -> Tuple[WrapperConfig, TrainConfig, EvalConfig]:
                               seed=args.seed,
                               mix_coef=args.mix_coef,
                               div_coef=args.div_coef,
-                              prompt_amp=args.prompt_amp,)
+                              prompt_amp=args.prompt_amp,
+                              t5_spt=args.t5_spt,
+                              auto_pos=args.auto_pos)
     #                          distill=args.distill)
 
     train_cfg = TrainConfig(device=args.device,

@@ -30,6 +30,7 @@ from torch.utils.data import RandomSampler, DataLoader, SequentialSampler
 # from torch.cuda.amp import autocast, GradScaler
 from transformers import AdamW, get_linear_schedule_with_warmup, \
     AutoModelForMaskedLM, AutoConfig, AutoTokenizer, GPT2LMHeadModel  # TODO
+#from torch.optim import SGD
 
 import logging
 from data_utils import PVPS, load_task_helper, load_metrics, evaluate_results
@@ -37,6 +38,7 @@ from config import WrapperConfig, EvalConfig
 from utils import InputExample, InputFeatures, DictDataset
 from encoder import PromptEncoder
 import torch.nn.functional as F
+import prompt_generator as PG
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('model')
@@ -89,19 +91,95 @@ class PromptAmplifier(torch.nn.Module):
 
         re_output = self._decode(embeds) # [bz, M, sql, vocab]
         re_output = re_output.reshape(-1, re_output.size(-1)) 
+
         ground_truth = input_ids.unsqueeze(1).repeat(1, self.config.prompt_amp, 1) # [bz, M, sql]
         ground_truth = ground_truth.reshape(-1) 
         reconstruction_loss = torch.nn.CrossEntropyLoss()(re_output, ground_truth) 
 
         return embeds, kl_loss, reconstruction_loss
 
-class PromptGenerator(torch.nn.Module):
+class PromptAmplifierT5(torch.nn.Module):
     def __init__(self, config:WrapperConfig, prompt_length):
+        super(PromptAmplifierT5, self).__init__()
+        self.hidden_size = config.embed_size
+        self.pl = prompt_length #prompt length
+        self.max_seq_length = config.max_seq_length
+        self.config = config
+
+        self.M_gen = torch.nn.Linear(self.hidden_size, self.hidden_size)
+        self.VL = torch.nn.Linear(self.max_seq_length, self.pl)
+
+        self.Decoder = torch.nn.Linear(self.hidden_size, self.hidden_size)
+        #self.Decoder2 = torch.nn.Linear(2 * self.hidden_size, self.hidden_size)
+
+        self.Mean = 0.0
+        self.Mean_cache = None
+
+    def mean_from_pt(self, device):
+        self.Mean = torch.load('./Mean.pt').to(device)
+
+    def mean_to_pt(self):
+        torch.save(self.Mean, './Mean.pt')
+
+    def sampling(self, M, Vlog):
+        prompt_all = []
+        for i in range(self.config.prompt_amp):
+            epsilon = torch.randn(M.shape).to(M.device)
+            prompt_i = M + torch.mul(torch.exp(Vlog), epsilon)
+            prompt_all.append(prompt_i.unsqueeze(0))
+
+        prompt_all = torch.cat(prompt_all).permute(1, 0, 2, 3)
+
+        return prompt_all 
+
+    def _Vlog_gen(self, embeds):
+        embeds = embeds.permute(0, 2, 1)
+        outp1 = self.VL(embeds)
+        outp1 = outp1.permute(0, 2, 1)
+        return outp1
+
+    def forward(self, embeds, input_embeds, is_train=True):   # [bz, pl, hid], [bz or tem_count, seq_len, hid]
+        bz = embeds.size(0)
+        embeds_c = embeds.clone()
+        if is_train:
+            M = self.M_gen(embeds)  #generate prompt mean   [bz, pl, hid]
+            if not isinstance(self.Mean, torch.Tensor):
+                self.Mean = M.mean(0)
+            else:
+                self.Mean = (self.Mean + M.mean(0)) / 2
+        else:
+            if self.Mean == None:
+                self.Mean = self.mean_from_pt(embeds.device)
+            M = self.Mean.unsqueeze(0).repeat(bz, 1, 1)
+
+        Vlog = self._Vlog_gen(input_embeds)    #generate prompt variance   [bz, pl, hid]
+
+        embeds = self.sampling(M, Vlog) # [bz, M, pl, hid]
+        #embeds = torch.cat([M, Vlog], dim=-1) # [bz, pl, 2 * hid]
+
+        kl_loss = 1 + Vlog - torch.square(M) - torch.exp(Vlog)
+        kl_loss = torch.sum(kl_loss)
+        kl_loss *= -0.5
+
+        re_output = self.Decoder(embeds) # [bz, M, pl, hid]
+        #re_output = self.Decoder2(embeds) # [bz, M, pl, hid]
+        if self.config.prompt_amp and self.config.prompt_amp > 1:
+            ground_truth = embeds_c.unsqueeze(1).repeat(1, self.config.prompt_amp, 1, 1) # [bz, M, pl, hid]
+        else:
+            ground_truth = embeds_c # [bz, pl, hid]
+        reconstruction_loss = torch.nn.MSELoss()(re_output, ground_truth) 
+
+        #return embeds, kl_loss, reconstruction_loss
+        return re_output, kl_loss, reconstruction_loss
+
+class PromptGenerator(torch.nn.Module):
+    def __init__(self, config:WrapperConfig, prompt_length, model_config=None, state_dict=None):
         super(PromptGenerator, self).__init__()
         self.hidden_size = config.embed_size
         self.pl = prompt_length #prompt length
         self.pet = config.prompt_encoder_type
         self.max_seq_length = config.max_seq_length
+        self.pretrain_state_dict = state_dict
 
         if config.prompt_encoder_type == "lstm":
             self.lstm_head = torch.nn.LSTM(input_size=self.hidden_size,
@@ -126,6 +204,14 @@ class PromptGenerator(torch.nn.Module):
                 torch.nn.ReLU(),
                 torch.nn.Linear(self.hidden_size, self.pl)
                 )
+        elif config.prompt_encoder_type == "sa":
+            self.pg = PG.SPLayer(model_config)
+            self.pg.load_state_dict(self.pretrain_state_dict)
+            self.Adapter = nn.Sequential(
+                        torch.nn.Linear(config.max_seq_length, self.hidden_size),
+                        torch.nn.ReLU(),
+                        torch.nn.Linear(self.hidden_size, self.pl)
+                        )
 
     def forward(self, embeds):
         bz = embeds.size(0)
@@ -143,6 +229,12 @@ class PromptGenerator(torch.nn.Module):
             embeds = embeds.permute(0, 2, 1)
             embeds = self.mlp(embeds)
             embeds = embeds.permute(0, 2, 1)
+
+        elif self.pet == "sa":
+            embeds = self.pg(embeds, embeds)[0]   #[bz, seq, hidden]
+            embeds = embeds.permute(0, 2, 1)    #[bz, hidden, seq]
+            embeds = self.Adapter(embeds)   #[bz, hidden, ql]
+            embeds = embeds.permute(0, 2, 1)    #[bz, ql, hidden]
 
         return embeds
 
@@ -168,8 +260,14 @@ class ContinuousPrompt(nn.Module):
 
         self.prompt_length = prompt_length
 
+        self.prompt_token = '. , it is because that'
+        self.prompt_token_ids = None
+        self.prompt_token_embeds = None
+        self.prompt_token_ids = torch.tensor(self.tokenizer.encode(self.prompt_token) + [self.tokenizer.pad_token_id] * (config.max_seq_length - len(self.tokenizer.encode(self.prompt_token))), dtype=torch.long).cuda()
+
         # vertify embed_size
         #if config.x_input:
+
         #    self.embed_size = ((config.embed_size * config.max_seq_length // self.prompt_length) * self.prompt_length) // config.max_seq_length
         #    self.hidden_size = self.embed_size
         #    print("vertify embed_size to :", self.embed_size)
@@ -240,14 +338,36 @@ class ContinuousPrompt(nn.Module):
             # Use some unused tokens as prompt tokens / label tokens
             pass
 
+        elif config.prompt_encoder_type == 'sa' and config.x_input:
+            self.pg = PG.SPLayer(model_config)
+            self.pg.load_state_dict(self.model.roberta.encoder.layer[0].state_dict())
+            self.Adapter = nn.Sequential(
+                        torch.nn.Linear(config.max_seq_length, self.hidden_size),
+                        torch.nn.ReLU(),
+                        torch.nn.Linear(self.hidden_size, self.prompt_length)
+                        )
         else:
             raise ValueError('unknown prompt_encoder_type.')
 
         if self.warmup:
-            self.prompt_generator = PromptGenerator(config, self.prompt_length)
+            if not config.prompt_encoder_type == 'sa':
+                self.prompt_generator = PromptGenerator(config, self.prompt_length)
+            else:
+                self.prompt_generator = PromptGenerator(config, self.prompt_length, model_config, self.model.roberta.encoder.layer[0].state_dict())
+
+        if config.auto_pos:
+            self.position_id_gen = torch.nn.Sequential(
+                torch.nn.Linear(self.hidden_size, self.hidden_size // 2),
+                torch.nn.ReLU(),
+                torch.nn.Linear(self.hidden_size // 2, 1)
+                )
 
         if config.x_input and config.prompt_amp:
-            self.amplifier = PromptAmplifier(config, self.prompt_length, self.tokenizer.vocab_size)
+            if not config.t5_spt:
+                self.amplifier = PromptAmplifier(config, self.prompt_length, self.tokenizer.vocab_size)
+            else:
+                self.amplifier = PromptAmplifierT5(config, self.prompt_length)
+
 
 
 class TransformerModelWrapper(object):
@@ -448,6 +568,10 @@ class TransformerModelWrapper(object):
 
         elif self.config.prompt_encoder_type == "none":
             pass
+        elif self.config.prompt_encoder_type == "sa":
+            embedding_parameters = [
+                {'params': [p for p in cur_model.Adapter.parameters()]}
+            ]
         elif self.config.prompt_encoder_type == "inner":
             if stage == 1:
                 # Training stage 1: only optimize prompt-related tokens
@@ -471,12 +595,16 @@ class TransformerModelWrapper(object):
         optimizer_list, scheduler_list = [], []
         optimizer_list.append(
             AdamW(optimizer_grouped_parameters, lr=1e-5, eps=adam_epsilon))
+        #optimizer_list.append(
+        #    SGD(optimizer_grouped_parameters, lr=1e-5, momentum=0.9))
         scheduler_list.append(get_linear_schedule_with_warmup(
             optimizer_list[0], num_warmup_steps=warmup_steps, num_training_steps=t_total))
 
         if embedding_parameters:
             optimizer_list.append(AdamW(
                 embedding_parameters, lr=learning_rate, eps=adam_epsilon))
+            #optimizer_list.append(SGD(
+            #    embedding_parameters, lr=learning_rate, momentum=0.9))
             scheduler_list.append(get_linear_schedule_with_warmup(
                 optimizer_list[1], num_warmup_steps=warmup_steps, num_training_steps=t_total))
 
@@ -567,6 +695,9 @@ class TransformerModelWrapper(object):
 
                     # Evaluate every some steps
                     if global_step % self.config.eval_every_step == 0:
+                        # save Mean.pt
+                        if self.config.t5_spt:
+                            self.model.amplifier.mean_to_pt()
                         dev_res = self.eval(
                             dev_data, eval_config.per_gpu_eval_batch_size, n_gpu, eval_config.metrics, is_dev=True)
                         if kwargs.get('record_eval', False):
@@ -732,6 +863,11 @@ class TransformerModelWrapper(object):
         #                                                        labeled_batch['d_p_flag'], labeled_batch['labels']
         model = self.model.module if hasattr(
             self.model, 'module') else self.model
+        #gen_position_ids
+        if self.config.auto_pos:
+            position_embeds = model.position_id_gen(inputs['inputs_embeds']).squeeze(-1)
+            position_ids = position_embeds.sort(-1).indices
+            inputs['position_ids'] = position_ids + self.tokenizer.pad_token_id
         outputs = model.model(**inputs)
         if self.config.prompt_encoder_type == "inner":
             prediction_scores = self.encoder.convert_mlm_logits_to_cls_logits(
@@ -764,7 +900,7 @@ class TransformerModelWrapper(object):
 
         # Add loss of extra masked tokens
         if 'extra_mlm_labels' in labeled_batch:
-            if self.config.prompt_amp:
+            if self.config.prompt_amp and self.config.prompt_amp > 1:
                 labeled_batch['extra_mlm_labels'] = labeled_batch['extra_mlm_labels'].repeat(self.config.prompt_amp, 1)
 
             extra_mlm_labels = labeled_batch['extra_mlm_labels']
@@ -772,12 +908,12 @@ class TransformerModelWrapper(object):
                                                extra_mlm_labels.view(-1))
             loss += extra_loss
 
-        if self.config.aug and aug_embeds != None:
+        if self.config.aug and aug_embeds != None and len(aug_embeds) >= 1:
             aug_loss = self.cal_aug_loss(embeds, aug_embeds, 1)
             loss += self.config.div_coef * aug_loss
 
         if self.config.prompt_amp:
-            loss += 1/5 * kl_loss
+            #loss += 1/5 * kl_loss
             loss += 1/5 * rec_loss
 
         #add replace_embeds loss
@@ -859,6 +995,9 @@ class TransformerModelWrapper(object):
             #    'p_flag': torch.tensor([f.p_flag for f in features], dtype=torch.long),
             #    'd_p_flag': torch.tensor([f.d_p_flag for f in features], dtype=torch.long),
 
+        if self.config.t5_spt:
+            feature_dict['prompt'] = torch.tensor([f.prompt for f in features], dtype=torch.long)
+
         if self.task_helper:
             self.task_helper.add_features_to_dict(features, feature_dict)
 
@@ -870,7 +1009,7 @@ class TransformerModelWrapper(object):
             # Preprocessor for models pretrained using a masked language modeling objective (e.g., BERT).
             #input_ids, token_type_ids, block_flag, aug_ids, input_parts_ids = self.pvp.encode(example, aug=aug, seed=self.config.seed)
             #input_ids, token_type_ids, block_flag, input_parts_ids, tr_input_parts_ids, mlm_labels_flag, distill_mlm_labels_flag, prompt_flag, distill_prompt_flag = self.pvp.encode(example, aug=aug, seed=self.config.seed, distill=False)
-            input_ids, token_type_ids, block_flag, input_parts_ids, tr_input_parts_ids = self.pvp.encode(example, aug=aug, seed=self.config.seed)
+            input_ids, token_type_ids, block_flag, input_parts_ids, tr_input_parts_ids, extra = self.pvp.encode(example, aug=aug, seed=self.config.seed)
             attention_mask = [1] * len(input_ids)
             padding_length = self.config.max_seq_length - \
                 len(input_ids)
@@ -889,6 +1028,7 @@ class TransformerModelWrapper(object):
                 ([self.tokenizer.pad_token_id] * parts_padding_length)
             tr_input_parts_ids = tr_input_parts_ids + \
                 ([self.tokenizer.pad_token_id] * tr_parts_padding_length)
+
 
             #if aug_ids:
             #    aug_padding_length = self.config.max_seq_length - \
@@ -978,6 +1118,14 @@ class TransformerModelWrapper(object):
                 #                               input_parts_ids = input_parts_ids
                 #                               )
 
+            prompt_ids = None
+            if self.config.t5_spt:
+                prompt_ids = extra['prompt']
+                prompt_padding_length = self.model.prompt_length - len(prompt_ids)
+                prompt_ids = prompt_ids + \
+                    ([self.tokenizer.pad_token_id] * prompt_padding_length)
+                input_features.prompt = prompt_ids
+
             # Add meta input features
             if self.task_helper:
                 self.task_helper.add_special_input_features(
@@ -1028,6 +1176,14 @@ class TransformerModelWrapper(object):
             # assert set(self.encoder.pattern_convert.keys()) == set(input_ids[torch.where(block_flag==1)].tolist())
             replace_embeds = self.encoder.get_replace_embeds(word_embeddings)
 
+        elif self.config.prompt_encoder_type == "sa":
+            model.prompt_token_embeds = model.model.get_input_embeddings()(model.prompt_token_ids)
+            #replace_embeds = model.pg(replace_embeds, model.prompt_token_embeds.unsqueeze(0).repeat(bz, 1, 1))[0]   #[bz, seq, hidden]
+            replace_embeds = model.pg(replace_embeds, replace_embeds)[0]   #[bz, seq, hidden]
+            replace_embeds = replace_embeds.permute(0, 2, 1)    #[bz, hidden, seq]
+            replace_embeds = model.Adapter(replace_embeds)   #[bz, hidden, ql]
+            replace_embeds = replace_embeds.permute(0, 2, 1)    #[bz, ql, hidden]
+
         else:
             raise ValueError("unknown prompt_encoder_type.")
 
@@ -1053,24 +1209,38 @@ class TransformerModelWrapper(object):
         word_embeddings = model.model.get_input_embeddings()
         raw_embeds = word_embeddings(input_ids)
         parts_raw_embeds = word_embeddings(input_parts_ids)
+        if self.config.t5_spt and is_train:
+            replace_embeds = word_embeddings(batch['prompt'])
+        else:
+            replace_embeds = self.get_replace_embeds(model, bz, parts_raw_embeds)
+
         aug_replace_embeds = []
         if self.config.aug and is_train and batch['aug_ids'] != None:
             aug_embeds = word_embeddings(batch['aug_ids'])
             aug_replace_embeds = self.get_replace_embeds(model, bz, aug_embeds)
             if self.config.prompt_amp != None:
-                aug_replace_embeds, kl_loss, rec_loss = self.model.amplifier(aug_replace_embeds, batch['aug_ids']) # [bz, M, pl, hid]
+                if not self.config.t5_spt:
+                    aug_replace_embeds, kl_loss, rec_loss = self.model.amplifier(aug_replace_embeds, batch['aug_ids']) # [bz, M, pl, hid]
+                else:
+                    #TODO need deepcopy?
+                    aug_replace_embeds, kl_loss, rec_loss = self.model.amplifier(replace_embeds, aug_embeds, is_train) # [bz, M, pl, hid]
                 #aug_replace_embeds = self.permute_prompt(aug_replace_embeds)
 
         #replace_embeds = self.get_replace_embeds(model, bz, raw_embeds.clone().detach().requires_grad_())
-        replace_embeds = self.get_replace_embeds(model, bz, parts_raw_embeds)
 
         if self.config.prompt_amp != None:
             #replace_embeds = self.permute_prompt(replace_embeds)
-            replace_embeds, kl_loss, rec_loss = self.model.amplifier(replace_embeds, input_ids) # [bz, M, pl, hid]
-            raw_embeds = raw_embeds.repeat(self.config.prompt_amp, 1, 1)
-            batch['attention_mask'] = batch['attention_mask'].repeat(self.config.prompt_amp, 1)
-            batch['labels'] = batch['labels'].repeat(self.config.prompt_amp)
-            batch['mlm_labels'] = batch['mlm_labels'].repeat(self.config.prompt_amp, 1)
+            if not self.config.t5_spt:
+                replace_embeds, kl_loss, rec_loss = self.model.amplifier(replace_embeds, input_ids) # [bz, M, pl, hid]
+            else:
+                #TODO need deepcopy?
+                replace_embeds, kl_loss, rec_loss = self.model.amplifier(replace_embeds, parts_raw_embeds, is_train) # [bz, M, pl, hid]
+
+            if self.config.prompt_amp > 1:
+                raw_embeds = raw_embeds.repeat(self.config.prompt_amp, 1, 1)
+                batch['attention_mask'] = batch['attention_mask'].repeat(self.config.prompt_amp, 1)
+                batch['labels'] = batch['labels'].repeat(self.config.prompt_amp)
+                batch['mlm_labels'] = batch['mlm_labels'].repeat(self.config.prompt_amp, 1)
             #if self.config.distill and is_train:
             #    batch['mlm_flag'] = batch['mlm_flag'].repeat(self.config.prompt_amp, 1)
             #    batch['d_mlm_flag'] = batch['d_mlm_flag'].repeat(self.config.prompt_amp, 1)
@@ -1084,7 +1254,7 @@ class TransformerModelWrapper(object):
             for bidx in range(bz):
                 for i in range(blocked_indices.shape[1]):
                     if self.config.x_input:
-                        if not self.config.prompt_amp:
+                        if not (self.config.prompt_amp and self.config.prompt_amp > 1):
                             if self.config.x_input == 'replace':
                                 raw_embeds[bidx, blocked_indices[bidx, i], :] = replace_embeds[bidx, i, :]
                             elif self.config.x_input == 'mix':
@@ -1190,8 +1360,13 @@ class TransformerModelWrapper(object):
             embedding_parameters = [
                     {'params': [p for p in cur_model.prompt_generator.mlp.parameters()]},
                     ]
+        elif self.config.prompt_encoder_type == "sa":
+            embedding_parameters = [
+                    {'params': [p for p in cur_model.prompt_generator.Adapter.parameters()]},
+                    ]
 
         embedding_optimizer = AdamW(embedding_parameters, lr=warmup_lr, eps=adam_epsilon)
+        #embedding_optimizer = SGD(embedding_parameters, lr=warmup_lr, momentum=0.9)
         embedding_scheduler = get_linear_schedule_with_warmup(embedding_optimizer, num_warmup_steps=warmup_steps, num_training_steps=t_total)
 
         ### TODO
@@ -1246,9 +1421,9 @@ class TransformerModelWrapper(object):
                 train_iterator.close()
                 break
         from utils import mkdir_if_missing
-        mkdir_if_missing('/apdcephfs/private_shaotiancai/code/model/DART_copy/lt/'+task_name.upper())
-        self.warmup_save('/apdcephfs/private_shaotiancai/code/model/DART_copy/lt/'+task_name.upper())
-        np.save('/apdcephfs/private_shaotiancai/code/model/DART_copy/lt/'+task_name.upper()+'/warmup_loss', np.array(loss_list))
+        mkdir_if_missing('./warmup'+task_name.upper())
+        self.warmup_save('./warmup'+task_name.upper())
+        np.save('./warmup'+task_name.upper()+'/warmup_loss', np.array(loss_list))
         #return best_global_step, (best_loss / best_global_step if best_global_step > 0 else -1)
 
 
@@ -1322,6 +1497,10 @@ class TransformerModelWrapper(object):
             state = {
                 "mlp": cur_model.prompt_generator.mlp.state_dict()
             }
+        elif self.config.prompt_encoder_type == "sa":
+            state = {
+                "Adapter": cur_model.prompt_generator.Adapter.state_dict()
+            }
 
         save_path_file = os.path.join(path, "warmup.pth")
         print("save to ", save_path_file)
@@ -1339,5 +1518,7 @@ class TransformerModelWrapper(object):
                 model_to_load.mlp_head.load_state_dict(data["mlp_head"])
         elif self.config.prompt_encoder_type == "mlp":
             model_to_load.mlp.load_state_dict(data["mlp"])
+        elif self.config.prompt_encoder_type == "sa":
+            model_to_load.Adapter.load_state_dict(data["Adapter"])
         print("load from ", save_path_file)
 

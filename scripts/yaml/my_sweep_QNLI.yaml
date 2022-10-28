@@ -1,6 +1,6 @@
 program: my_sweep.py
 command:
-  - python3
+  - python
   - ${program}
 project: QNLI_es
 entity: szu_csse_bdi
