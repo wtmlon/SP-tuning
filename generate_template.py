@@ -349,8 +349,8 @@ def search_template(model, tokenizer, task_name, k, seed, beam, output_dir, data
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--t5_model', type=str, default='../model/t5-3b', help='T5 pre-trained model')
-    parser.add_argument('--seed', type=int, nargs='+', default=[42, 13, 21, 100, 87], help="Data split seeds")
-    parser.add_argument('--task_name', type=str, nargs='+', default=['SST-2', 'sst-5', 'mr', 'cr', 'subj', 'trec', 'CoLA', 'MRPC', 'QQP', 'STS-B', 'MNLI', 'SNLI', 'QNLI', 'RTE'], help="Task names")
+    parser.add_argument('--seed', type=int, nargs='+', default=[100], help="Data split seeds")
+    parser.add_argument('--task_name', type=str, nargs='+', default=['mr', 'cr', 'subj', 'trec', 'CoLA', 'MRPC'], help="Task names")
     parser.add_argument('--output_dir', type=str, default='./T5_template')
 
     parser.add_argument('--data_dir', type=str, default="data/k-shot", help="Data directory")

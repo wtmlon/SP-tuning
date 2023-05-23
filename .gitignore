@@ -2,3 +2,7 @@
 *.sw*
 output/
 data/
+pic/
+*wandb/*
+*.pt
+*warmup*

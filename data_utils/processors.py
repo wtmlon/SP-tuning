@@ -716,7 +716,7 @@ class ColaProcessor(DataProcessor):
 class Sst5Processor(DataProcessor):
     """Processor for the SST-5 data set (GLUE)."""
 
-    def get_train_examples(self, data_dir, aug):
+    def get_train_examples(self, data_dir, aug, prompt: bool=False):
         return self._create_examples(os.path.join(data_dir, "train.csv"), "train", use_trans=aug)
 
     def get_dev_examples(self, data_dir):

@@ -222,6 +222,7 @@ class SPSelfAttention(RobertaSelfAttention):
 
         if self.is_decoder:
             outputs = outputs + (past_key_value,)
+        torch.save(attention_probs, './attention_probs.pt')
         return outputs
 
 model_config = AutoConfig.from_pretrained(
@@ -232,7 +233,7 @@ model_config = AutoConfig.from_pretrained(
 
 def test_Layer():
     sa = SPLayer(model_config)
-    tmp = torch.randn(32, 128, 1024)
+    tmp = torch.randn(32, 1, 1024)
     tmp1 = torch.randn(32, 128, 1024)
     bb = sa(tmp, tmp1)
     pdb.set_trace()

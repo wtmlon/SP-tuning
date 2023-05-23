@@ -40,9 +40,6 @@ from utils import InputExample, InputFeatures, DictDataset
 from encoder import PromptEncoder
 import torch.nn.functional as F
 import prompt_generator as PG
-from sklearn import manifold
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('model')
@@ -264,16 +261,10 @@ class ContinuousPrompt(nn.Module):
 
         self.prompt_length = prompt_length
 
-        # QNLI
         self.prompt_token = '. , it is because that ? Then Indeed hand you although At correct not possible fact For But right place answer Yes actually Actually in no Although course other In It The Answer because it is such However No first fact however it\'s addition at known writing true are the time Also, indeed as same thing. Then, this hand there but ?! though that since two. Yes, and that\'s thing Of indeed no writing And two does true why it_s Because of On example'
-        # MNLI
-        #self.prompt_token = '. , because of I\'m fact Then end not ! than so That\'s that\'s know as course fact guess ? so But like even think right are and though yes course I . " end then more not , it\'s And way true actually Right well No In sure by because no it that the don\'t mean that Yes True you\'re what sorry isn\'t : is ... ; however you least just but is, at really why know, in'
-        # SNLI
-        #self.prompt_token = ', it is possible that maybe one more One how image as background it_s ... picture - Then that photo looks when I : it\'s like course distance ; than the time just we this no In that_s not why It ? And tell and photo where . because you case or in is think see of background background, only image even But picture but ! one that\'s case can Not'
         self.prompt_token_ids = None
         self.prompt_token_embeds = None
-        #self.prompt_token_ids = torch.tensor(self.tokenizer.encode(self.prompt_token) + [self.tokenizer.pad_token_id] * (config.max_seq_length - len(self.tokenizer.encode(self.prompt_token))), dtype=torch.long).cuda()
-        self.prompt_token_ids = torch.tensor(self.tokenizer.encode(self.prompt_token), dtype=torch.long).cuda()
+        self.prompt_token_ids = torch.tensor(self.tokenizer.encode(self.prompt_token) + [self.tokenizer.pad_token_id] * (config.max_seq_length - len(self.tokenizer.encode(self.prompt_token))), dtype=torch.long).cuda()
 
         # vertify embed_size
         #if config.x_input:
@@ -631,7 +622,6 @@ class TransformerModelWrapper(object):
         prev_loss, tr_loss = 0.0, 0.0
         # for parameters search
         last_eval = None
-        best_eval = None
 
         # Record dev metric scores in tensorboard
         # dev_scores = self.eval(
@@ -651,8 +641,6 @@ class TransformerModelWrapper(object):
         if kwargs.get('record_eval', False):
             all_eval_dev, all_eval_test = [], []
 
-        #test_res = self.eval(
-        #    eval_data, eval_config.per_gpu_eval_batch_size, n_gpu, eval_config.metrics, draw=True, idx=global_step)
         extra_mask_rate = kwargs.get('extra_mask_rate', 0.0)
         train_iterator = trange(int(num_train_epochs), desc="Epoch")
         for _ in train_iterator:
@@ -673,11 +661,7 @@ class TransformerModelWrapper(object):
                 if self.task_helper:
                     loss = self.task_helper.train_step(batch)
                 else:
-                    if global_step % 30 == 0:
-                        loss, different = self.mlm_train_step(batch, draw=True, idx=global_step)
-                    else:
-                        loss, different = self.mlm_train_step(batch, draw=False)
-                    #loss = self.mlm_train_step(batch)
+                    loss = self.mlm_train_step(batch)
 
                 if n_gpu > 1:
                     loss = loss.mean()  # mean() to average on multi-gpu parallel training
@@ -692,9 +676,7 @@ class TransformerModelWrapper(object):
                     writer.add_scalar(
                         "train_loss", (tr_loss - prev_loss), global_step=global_step)
                     writer.add_scalar(
-                        "different", different, global_step=global_step)
-                    #writer.add_scalar(
-                    #    "lr0", optimizer_list[0].param_groups[0]["lr"], global_step=global_step)
+                        "lr0", optimizer_list[0].param_groups[0]["lr"], global_step=global_step)
                     #writer.add_scalar(
                     #    "lr1", optimizer_list[1].param_groups[0]["lr"], global_step=global_step)
                     prev_loss = tr_loss
@@ -744,27 +726,20 @@ class TransformerModelWrapper(object):
                             best_loss = tr_loss
 
                             # Perform evaluation on test
-                            #if best_dev_metric <= 0.70:
-                            #    continue
-                            #test_res = self.eval(
-                            #    eval_data, eval_config.per_gpu_eval_batch_size, n_gpu, eval_config.metrics, draw=False, idx=global_step)
-                            #if kwargs.get('record_eval', False):
-                            #    all_eval_test.append(test_res)
-                            #eval_scores = test_res['scores']
-                            #last_eval = eval_scores
-                            #if not best_eval:
-                            #    best_eval = eval_scores
-                            #if eval_scores['acc'] > best_eval['acc']:
-                            #    best_eval = eval_scores
+                            test_res = self.eval(
+                                eval_data, eval_config.per_gpu_eval_batch_size, n_gpu, eval_config.metrics)
+                            if kwargs.get('record_eval', False):
+                                all_eval_test.append(test_res)
+                            eval_scores = test_res['scores']
+                            last_eval = eval_scores
+                            logger.info("eval_data performance: %s" %
+                                        str(eval_scores))
+                            log_scalars(eval_scores, 'eval')
+                            #tune.report(eval=eval_scores)
 
-                            #logger.info("eval_data performance: %s" %
-                            #            str(eval_scores))
-                            #log_scalars(eval_scores, 'eval')
-                            ##tune.report(eval=eval_scores)
-
-                            ## TODO: can also choose to save model only on higher scores
-                            ## Save best model
-                            #self.save(pattern_iter_output_dir)
+                            # TODO: can also choose to save model only on higher scores
+                            # Save best model
+                            self.save(pattern_iter_output_dir)
                         else:
                             early_stop_count += 1
                             if kwargs.get('record_eval', False):
@@ -783,45 +758,17 @@ class TransformerModelWrapper(object):
             handle.remove()
         except Exception:
             pass
-        
-        #test_res = self.eval(
-        #        eval_data, eval_config.per_gpu_eval_batch_size, n_gpu, eval_config.metrics, draw=False, idx=global_step)
-        attention_probs = torch.load('./attention_probs.pt')
-        input_ids = torch.load('./input_ids.pt')
-        hlist = self.model.prompt_token_ids[torch.argmax(attention_probs, dim=-1)].reshape(attention_probs.size(0), -1).tolist()
-        res, all_vc, word_accent_cnt = self.value_count(hlist)
 
         if kwargs.get('record_eval', False):
             return best_global_step, (best_loss / best_global_step if best_global_step > 0 else -1), all_eval_dev, all_eval_test
-        return best_global_step, (best_loss / best_global_step if best_global_step > 0 else -1), last_eval, best_eval
-
-    def value_count(self, values):
-        res = []
-        all_value_cnt = {}
-        for l in values:
-            value_cnt = {}
-            for value in l:
-                v = self.tokenizer.decode(value)
-                value_cnt[v] = value_cnt.get(v, 0) + 1
-                all_value_cnt[v] = all_value_cnt.get(v, 0) + 1
-            res.append(value_cnt)
-
-        word_accent_cnt = {}
-        for key in all_value_cnt.keys():
-            for i in range(len(res)):
-                if key in res[i].keys():
-                    word_accent_cnt[key] = word_accent_cnt.get(key, 0) + 1
-
-        return res, all_value_cnt, word_accent_cnt
+        return best_global_step, (best_loss / best_global_step if best_global_step > 0 else -1), last_eval
 
     def eval(self,
              eval_data: List[InputExample],
              per_gpu_eval_batch_size: int = 8,
              n_gpu: int = 1,
              metrics: List[str] = ['acc'],
-             is_dev: bool=False,
-             draw: bool=False,
-             idx: int=None) -> Dict:
+             is_dev: bool=False) -> Dict:
 
         eval_dataset = self._generate_dataset(eval_data, is_train=False)
         eval_batch_size = per_gpu_eval_batch_size * max(1, n_gpu)
@@ -834,9 +781,6 @@ class TransformerModelWrapper(object):
         all_masked_full_logits, all_masked_hidden_states = None, None
         eval_losses = [0.0]
 
-        embeds_list = []
-        aug_embeds_list = []
-        #b_list = []
         for batch in tqdm(eval_dataloader, desc="Evaluating"):
             self.model.eval()
             if self.config.device == 'cuda':
@@ -847,15 +791,8 @@ class TransformerModelWrapper(object):
                     batch) if self.task_helper else None
                 if logits is None:
                     # PATCH @ 2021.09.27: add masked hidden states of each sentence
-                    #logits, masked_full_logits, masked_hidden_states = self.mlm_eval_step(
-                    #    batch, is_dev=is_dev)
-                    logits, masked_full_logits, masked_hidden_states, embeds, _ = self.mlm_eval_step(
+                    logits, masked_full_logits, masked_hidden_states = self.mlm_eval_step(
                         batch, is_dev=is_dev)
-                    if draw:
-                        embeds_list.append(embeds.clone().cpu().detach())
-                        #aug_embeds_list.append(aug_embeds.clone().cpu().detach())
-                        #b_list.append(batch_list)
-
                     if all_masked_hidden_states is None:
                         all_masked_full_logits = masked_full_logits.detach().cpu().numpy()
                         all_masked_hidden_states = masked_hidden_states.detach().cpu().numpy()
@@ -888,12 +825,6 @@ class TransformerModelWrapper(object):
                     question_ids = np.append(
                         question_ids, batch['question_idx'].detach().cpu().numpy(), axis=0)
 
-        if draw:
-            embeds_list = torch.cat(embeds_list)
-            #aug_embeds_list = torch.cat(aug_embeds_list)
-            #b_list = torch.cat(b_list)
-            self.draw(embeds_list, None, idx)
-
         results = {
             "eval_loss": np.mean(eval_losses),
             'indices': all_indices,
@@ -905,85 +836,6 @@ class TransformerModelWrapper(object):
         }
 
         return evaluate_results(results, metrics)
-
-    def cal_different(self, replace_embeds, raw_embeds):
-        bz = replace_embeds.size(0)
-        similarity_matrix_prompt, similarity_matrix_input = self.get_sim_matrix(replace_embeds, raw_embeds)
-
-        #normalize
-        similarity_matrix_prompt = (similarity_matrix_prompt - torch.min(similarity_matrix_prompt)) / (torch.max(similarity_matrix_prompt) - torch.min(similarity_matrix_prompt))
-        similarity_matrix_input = (similarity_matrix_input - torch.min(similarity_matrix_input)) / (torch.max(similarity_matrix_input) - torch.min(similarity_matrix_input))
-
-        #different
-        d_m = similarity_matrix_prompt - similarity_matrix_input
-        different = torch.sum(torch.abs(d_m)) / (bz * bz)
-        return different
-
-    def get_sim_matrix(self, replace_embeds, raw_embeds):
-        bz = replace_embeds.size(0)
-        replace_embeds = replace_embeds.reshape(bz, -1)
-        raw_embeds = raw_embeds.reshape(bz, -1)
-        replace_embeds = F.normalize(replace_embeds, dim=1)
-        raw_embeds = F.normalize(raw_embeds, dim=1)
-        similarity_matrix_prompt = F.cosine_similarity(replace_embeds.unsqueeze(1), replace_embeds.unsqueeze(0), dim=2)
-        similarity_matrix_input = F.cosine_similarity(raw_embeds.unsqueeze(1), raw_embeds.unsqueeze(0), dim=2)
-
-        return similarity_matrix_prompt, similarity_matrix_input
-
-    def draw(self, replace_embeds, raw_embeds, idx):
-        now_dir = './pic/{}/'.format(idx)
-        if not os.path.exists(now_dir):
-            os.mkdir(now_dir)
-
-        bz = replace_embeds.size(0)
-        np.save(os.path.join(now_dir, './prompt_vec.npy'), replace_embeds.numpy())
-        replace_embeds = replace_embeds.reshape(bz, -1)
-
-        # draw prompt 3d distribution graph
-        tsne = manifold.TSNE
-        reducer = tsne(n_components=2)
-        rdr_prompt = reducer.fit_transform(replace_embeds)
-        np.save(os.path.join(now_dir, './rdr_prompt.npy'), rdr_prompt)
-        #fig = plt.figure()
-        #ax = fig.add_subplot(projection='3d')
-        #ax = fig.add_subplot()
-        #ax.scatter(rdr_prompt[:, 0], rdr_prompt[:, 1], rdr_prompt[:, 2], s=5)
-        plt.scatter(rdr_prompt[:, 0], rdr_prompt[:, 1], s=1)
-        #x_major_locator=MultipleLocator(1)
-        #y_major_locator=MultipleLocator(1)
-        #z_major_locator=MultipleLocator(1)
-        #ax=plt.gca()
-        #ax.xaxis.set_major_locator(x_major_locator)
-        #ax.yaxis.set_major_locator(y_major_locator)
-        #ax.zaxis.set_major_locator(z_major_locator)
-        #ax.xaxis.set_visible(False)
-        #ax.yaxis.set_visible(False)
-        #ax.zaxis.set_visible(False)
-        #plt.xlim(np.min(rdr_prompt[:, 0]),np.max(rdr_prompt[:, 0]))
-        #plt.ylim(np.min(rdr_prompt[:, 1]),np.max(rdr_prompt[:, 1]))
-        #ax.set_zlim(np.min(rdr_prompt[:, 2]),np.max(rdr_prompt[:, 2]))
-
-        plt.savefig(os.path.join(now_dir, './prompt_distribution.png'))
-        plt.close()
-
-        # draw inter-prompt similarity graph 
-        if raw_embeds != None:
-            raw_embeds = raw_embeds.reshape(bz, -1)
-            fig = plt.figure()
-            similarity_matrix_prompt, similarity_matrix_input = self.get_sim_matrix(replace_embeds, raw_embeds)
-            #replace_embeds = F.normalize(replace_embeds, dim=1)
-            #raw_embeds = F.normalize(raw_embeds, dim=1)
-            #similarity_matrix_prompt = F.cosine_similarity(replace_embeds.unsqueeze(1), replace_embeds.unsqueeze(0), dim=2)
-            #similarity_matrix_input = F.cosine_similarity(raw_embeds.unsqueeze(1), raw_embeds.unsqueeze(0), dim=2)
-            np.save(os.path.join(now_dir, './similarity_matrix_prompt.npy'), similarity_matrix_prompt)
-            np.save(os.path.join(now_dir, './similarity_matrix_input.npy'), similarity_matrix_input)
-            sns.set()
-            ax = sns.heatmap(similarity_matrix_prompt.numpy())
-            plt.savefig(os.path.join(now_dir, 'prompt_similarity.png'))
-            plt.clf()
-            ax1 = sns.heatmap(similarity_matrix_input.numpy())
-            plt.savefig(os.path.join(now_dir, 'input_similarity.png'))
-            plt.close()
 
     def cal_aug_loss(self, embeds, aug_embeds, temperature = 1):
         bz = embeds.size(0)
@@ -1009,9 +861,9 @@ class TransformerModelWrapper(object):
         loss = torch.sum(loss_partial) / (2 * bz)
         return loss
 
-    def mlm_train_step(self, labeled_batch: Dict[str, torch.Tensor], draw: bool = False, idx: int = None) -> torch.Tensor:
+    def mlm_train_step(self, labeled_batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Perform a MLM training step."""
-        inputs, embeds, aug_embeds, kl_loss, rec_loss, different = self._generate_default_inputs(labeled_batch, is_train=True, draw = draw, idx = idx)
+        inputs, embeds, aug_embeds, kl_loss, rec_loss = self._generate_default_inputs(labeled_batch, is_train=True)
         mlm_labels, labels = labeled_batch['mlm_labels'], labeled_batch['labels']
         #mlm_labels, d_mlm_labels, prompt, d_prompt, labels = labeled_batch['mlm_flag'], labeled_batch['d_mlm_flag'], labeled_batch['p_flag'], \
         #                                                        labeled_batch['d_p_flag'], labeled_batch['labels']
@@ -1075,11 +927,11 @@ class TransformerModelWrapper(object):
         #    loss_rpl = torch.pow(replace_embeds, 2).mean()
         #    loss += 1000 * loss_rpl
 
-        return loss, different
+        return loss
 
     def mlm_eval_step(self, batch: Dict[str, torch.Tensor], is_dev: bool=False) -> torch.Tensor:
         """Perform a MLM evaluation step."""
-        inputs, embeds, aug_embeds, _, _, _  = self._generate_default_inputs(batch, is_train=False)
+        inputs, embeds, _, _, _ = self._generate_default_inputs(batch, is_train=False)
         model = self.model.module if hasattr(
             self.model, 'module') else self.model
         # PATCH @ 2021.09.27: add masked hidden states of each sentence
@@ -1110,8 +962,7 @@ class TransformerModelWrapper(object):
             #print(self.dev_err_set)
             #print(self.tokenizer.batch_decode(batch['input_ids'][is_false]))
 
-        #return prediction_scores, masked_full_logits, masked_hidden_states
-        return prediction_scores, masked_full_logits, masked_hidden_states, embeds, aug_embeds
+        return prediction_scores, masked_full_logits, masked_hidden_states
 
     def _generate_dataset(self, data: List[InputExample], labelled: bool = True, aug: bool = False, is_train: bool=False):
         features = self._convert_examples_to_features(data, labelled=labelled, aug=aug, is_train=is_train)
@@ -1351,7 +1202,7 @@ class TransformerModelWrapper(object):
 
         return replace_embeds   # set trace debugged
 
-    def _generate_default_inputs(self, batch: Dict[str, torch.Tensor], is_train: bool = False, draw: bool = False, idx: int = None) -> Dict[str, torch.Tensor]:
+    def _generate_default_inputs(self, batch: Dict[str, torch.Tensor], is_train: bool = False) -> Dict[str, torch.Tensor]:
         input_ids = batch['input_ids']
         input_parts_ids = batch['input_parts_ids']
         bz = batch['input_ids'].shape[0]
@@ -1368,13 +1219,11 @@ class TransformerModelWrapper(object):
             replace_embeds = word_embeddings(batch['prompt'])
         else:
             replace_embeds = self.get_replace_embeds(model, bz, parts_raw_embeds)
-            torch.save(batch['input_ids'], './input_ids.pt')
 
         aug_replace_embeds = []
         if self.config.aug and is_train and batch['aug_ids'] != None:
             aug_embeds = word_embeddings(batch['aug_ids'])
             aug_replace_embeds = self.get_replace_embeds(model, bz, aug_embeds)
-            torch.save(batch['aug_ids'], './input_ids.pt')
             if self.config.prompt_amp != None:
                 if not self.config.t5_spt:
                     aug_replace_embeds, kl_loss, rec_loss = self.model.amplifier(aug_replace_embeds, batch['aug_ids']) # [bz, M, pl, hid]
@@ -1405,10 +1254,6 @@ class TransformerModelWrapper(object):
             #    batch['d_p_flag'] = batch['d_p_flag'].repeat(self.config.prompt_amp, 1)
 
         if replace_embeds is not None:  # For normal cases where prompt encoder is not None
-            different = self.cal_different(replace_embeds.clone().cpu().detach(), raw_embeds.clone().cpu().detach())
-            if False:
-                self.draw(replace_embeds.clone().cpu().detach(), raw_embeds.clone().cpu().detach(), idx)
-
             blocked_indices = (block_flag == 1).nonzero(as_tuple=False).reshape(
                 (bz, model.prompt_length, 2))[:, :, 1]
 
@@ -1442,7 +1287,7 @@ class TransformerModelWrapper(object):
         if self.config.model_type in ['bert']:
             inputs['token_type_ids'] = batch['token_type_ids']
 
-        return inputs, replace_embeds, aug_replace_embeds, kl_loss, rec_loss, different
+        return inputs, replace_embeds, aug_replace_embeds, kl_loss, rec_loss
 
     def _add_extra_mask(self, batch: Dict[str, torch.Tensor], mask_rate: float) -> None:
         input_ids = batch['input_ids']

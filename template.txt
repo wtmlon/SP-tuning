@@ -1,0 +1,5 @@
+0.96875 *cls*_It's_just*mask*.*+sent_0**sep+*
+0.96875 *cls**sent_0*_A_truly*mask*_movie.*sep+*
+0.96875 *cls**sent_0*_This_is*mask*.*sep+*
+0.96875 *cls*_That_is*mask*.*+sent_0**sep+*
+0.96875 *cls**sent_0*_I_thought_it_was*mask*.*sep+*

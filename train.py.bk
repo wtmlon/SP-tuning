@@ -24,16 +24,14 @@ from utils import write_results, save_logits, save_predictions, set_seed, InputE
 
 logger = logging.getLogger('train')
 
-def save(path, pack, last_eval, best_eval):
+def save(path, pack, last_eval):
     with open(os.path.join(path, 'train_log'), 'a+') as f:
-        message = "seed: {}, batch_size: {}, weight_decay: {}, lr: {}, accumula: {}, last_eval: {}, best_eval: {}\n".format(
+        message = "seed: {}, batch_size: {}, weight_decay: {}, lr: {}, last_eval: {}\n".format(
                     pack['seed'],
                     pack['bz'],
                     pack['wd'],
                     pack['lr'],
-                    pack['accu'],
                     last_eval,
-                    best_eval,
                 )
         f.write(message)
         f.close()
@@ -64,8 +62,7 @@ def train_pet(args):
             'seed': args.seed,
             'bz': args.pet_per_gpu_train_batch_size,
             'wd': args.weight_decay,
-            'lr': args.learning_rate,
-            'accu': args.pet_gradient_accumulation_steps
+            'lr': args.learning_rate
             }
     # Iterates through all patterns
     for pattern_id in args.pattern_ids:
@@ -119,7 +116,7 @@ def train_pet(args):
                                                            wrapper, train_config, eval_config,
                                                            extra_mask_rate=args.extra_mask_rate)
                     results_dict.update(tmp)
-                    save(args.output_dir, pack, tmp['last_eval'], tmp['best_eval'])
+                    save(args.output_dir, pack, tmp['last_eval'])
                     # evaluate_single_model(pattern_id, pattern_iter_output_dir, eval_data,
                     #                       dev_data, eval_config, results_dict, dev_result_all, eval_result_all)
                     # with open(os.path.join(pattern_iter_output_dir, 'results.json'), 'w') as fh:
@@ -241,7 +238,7 @@ def train_single_model(train_data: List[InputExample],
             lr = config.learning_rate
             max_steps = config.max_steps
         # Perform training
-        global_step, tr_loss, last_eval, best_eval = model.train(
+        global_step, tr_loss, last_eval = model.train(
             pattern_iter_output_dir=pattern_iter_output_dir,
             eval_config=eval_config,
             train_data=train_data,
@@ -265,7 +262,6 @@ def train_single_model(train_data: List[InputExample],
         results_dict['global_step'] = global_step
         results_dict['average_loss'] = tr_loss
         results_dict['last_eval'] = last_eval
-        results_dict['best_eval'] = best_eval
 
     # Load trained model and evaluate train set
     # model = TransformerModelWrapper.from_pretrained(pattern_iter_output_dir)

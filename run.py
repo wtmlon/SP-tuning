@@ -49,7 +49,7 @@ def main():
     run_parser.add_argument("--num_splits", type=int, default=-1)
     run_parser.add_argument("--repeat", type=int, default=1)
     run_parser.add_argument("--load_manual", action='store_true')
-    run_parser.add_argument("--extra_mask_rate", type=float, default=0.1)
+    run_parser.add_argument("--extra_mask_rate", type=float, default=0.0)
     run_parser.add_argument("--output_dir_suffix", "-o", type=str, default='')
     run_parser.add_argument("--x_input",
                             choices=['replace', 'mix', 'mul'],
@@ -69,6 +69,7 @@ def main():
     run_parser.add_argument("--t5_spt", action='store_true', default=False, help="use T5 Sp tuning ?")
     run_parser.add_argument("--auto_pos", action='store_true', default=False, help="use auto position ?")
     run_parser.add_argument("--full_shot", action='store_true', default=False, help="use full shot ?")
+    run_parser.add_argument("--pet_gradient_accumulation_steps", default=1, type=int, help="pet_gradient_accumulation_steps")
     #run_parser.add_argument("--distill", action='store_true', default=False, help="use distill ?")
 
     run_args = run_parser.parse_args()
@@ -141,7 +142,7 @@ def main():
             output_dir = os.path.join(task_dir, data_split)
             arguments = ['--task_name', task,
                          '--data_dir', data_dir,
-                         '--pet_per_gpu_eval_batch_size', '32',
+                         '--pet_per_gpu_eval_batch_size', '256',
                          '--pet_max_steps', '1000',   # 1000
                          '--pet_repetitions', str(run_args.repeat)]
 
@@ -164,21 +165,22 @@ def main():
                 if task in ['MNLI', 'MNLI-mm', 'SNLI', 'rte-glue']:
                     arguments.extend(['--pet_max_seq_length', '256',
                                       '--pet_per_gpu_train_batch_size', str(run_args.pet_per_gpu_train_batch_size),
-                                      '--pet_gradient_accumulation_steps', '2'])
+                                      ])
                 else:
                     arguments.extend(['--pet_max_seq_length', '128',
                                       '--pet_per_gpu_train_batch_size', str(run_args.pet_per_gpu_train_batch_size),
-                                      '--pet_gradient_accumulation_steps', '1'])
+                                      ])
             else:
                 if task in ['MNLI', 'MNLI-mm', 'SNLI', 'rte-glue']:
                     arguments.extend(['--pet_max_seq_length', '256',
                                       '--pet_per_gpu_train_batch_size', str(run_args.pet_per_gpu_train_batch_size),
-                                      '--pet_gradient_accumulation_steps', '2'])
+                                      ])
                 else:
                     arguments.extend(['--pet_max_seq_length', '128',
                                       '--pet_per_gpu_train_batch_size', str(run_args.pet_per_gpu_train_batch_size),
-                                      '--pet_gradient_accumulation_steps', '1'])
-
+                                      ])
+            if run_args.learning_rate:
+                arguments.extend(['--pet_gradient_accumulation_steps', str(run_args.pet_gradient_accumulation_steps)])
             if run_args.learning_rate:
                 arguments.extend(['--learning_rate', str(run_args.learning_rate)])
             if run_args.weight_decay:
