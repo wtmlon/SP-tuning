@@ -1,5 +1,5 @@
 # SP-tuning
-Implementation for paper *A Fine-grained Self-adapting Prompt Learning Approach for Few-shot Learning with Pre-trained Language Models.
+Implementation for paper *A Fine-grained Self-adapting Prompt Learning Approach for Few-shot Learning with Pre-trained Language Models*.
 ## Environment
 - python@3.6
 - Use `pip install -r requirements.txt` to install dependencies.
